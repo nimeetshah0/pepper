@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffe7ad"/>
+      <stop offset="1" stop-color="#f2a64a"/>
+    </linearGradient>
+    <linearGradient id="hill" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#6cb86a"/>
+      <stop offset="1" stop-color="#2f7a3d"/>
+    </linearGradient>
+    <radialGradient id="door" cx="0.42" cy="0.38" r="0.7">
+      <stop offset="0" stop-color="#48a65e"/>
+      <stop offset="1" stop-color="#1f6233"/>
+    </radialGradient>
+    <radialGradient id="knob" cx="0.35" cy="0.35" r="0.7">
+      <stop offset="0" stop-color="#fff2a8"/>
+      <stop offset="1" stop-color="#d99a1c"/>
+    </radialGradient>
+    <clipPath id="tile"><rect width="128" height="128" rx="28"/></clipPath>
+    <clipPath id="doorClip"><circle cx="64" cy="84" r="29"/></clipPath>
+  </defs>
+  <g clip-path="url(#tile)">
+    <rect width="128" height="128" fill="url(#sky)"/>
+    <circle cx="98" cy="30" r="11" fill="#fff6d6" opacity="0.85"/>
+    <path d="M-4 80 C 26 52, 102 52, 132 80 V132 H-4 Z" fill="url(#hill)"/>
+    <circle cx="64" cy="84" r="35" fill="#c8955a"/>
+    <circle cx="64" cy="84" r="35" fill="none" stroke="#8a5a2b" stroke-width="2"/>
+    <circle cx="64" cy="84" r="29" fill="url(#door)"/>
+    <g clip-path="url(#doorClip)" stroke="#164a26" stroke-width="2" opacity="0.45">
+      <line x1="45" y1="50" x2="45" y2="118"/>
+      <line x1="54.5" y1="50" x2="54.5" y2="118"/>
+      <line x1="73.5" y1="50" x2="73.5" y2="118"/>
+      <line x1="83" y1="50" x2="83" y2="118"/>
+    </g>
+    <circle cx="64" cy="84" r="6.5" fill="url(#knob)" stroke="#9a6a10" stroke-width="1.5"/>
+  </g>
+</svg>

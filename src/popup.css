@@ -1,0 +1,33 @@
+:root {
+  --bg: #fffaf0; --card: #fff; --fg: #2b2a26; --muted: #7a7466; --line: #ece3cf;
+  --accent: #3f7d3a; --accent-fg: #fff; --gold: #e0a43c;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #1c1d1a; --card: #26281f; --fg: #eee8d8; --muted: #a39d8b; --line: #3a3c31;
+    --accent: #6aac5a; --accent-fg: #10140e;
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; width: 340px; padding: 16px; background: var(--bg); color: var(--fg); font: 13px/1.4 system-ui, sans-serif; }
+header { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
+header img { width: 40px; height: 40px; }
+h1 { font-size: 17px; margin: 0; }
+header p { margin: 0; color: var(--muted); font-size: 12px; }
+section { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 12px; margin-bottom: 12px; }
+h2 { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 0 0 8px; }
+.seg { display: grid; grid-template-columns: 1fr 1fr; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 3px; }
+.seg input { position: absolute; opacity: 0; }
+.seg label { text-align: center; padding: 6px 4px; border-radius: 6px; cursor: pointer; color: var(--muted); font-weight: 500; }
+.seg input:checked + label { background: var(--accent); color: var(--accent-fg); }
+.seg input:focus-visible + label { outline: 2px solid var(--gold); outline-offset: 1px; }
+.field { display: block; margin-bottom: 10px; }
+.field span { display: block; font-weight: 500; margin-bottom: 4px; }
+.field small { color: var(--muted); font-weight: 400; }
+.field input { width: 100%; padding: 7px 9px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--fg); font: inherit; }
+.field input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+.note { color: var(--muted); font-size: 12px; margin: 0 0 10px; }
+.row { display: flex; align-items: center; gap: 10px; }
+button { background: var(--accent); color: var(--accent-fg); border: 0; border-radius: 6px; padding: 7px 14px; font: inherit; font-weight: 600; cursor: pointer; }
+button:hover { filter: brightness(1.08); }
+#status { color: var(--accent); font-size: 12px; }
