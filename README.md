@@ -66,3 +66,8 @@ folding, viewed marking, story ordering, keyboard shortcuts) against fixtures fo
 React and classic GitHub diff UIs.
 
 `EASYPR_DIFF=/path/to/file.diff npm test` prints the category breakdown for a real diff.
+
+`JEV_KEY=... node scripts/test-jev.mjs` checks the live Jev endpoint against sample diffs
+(core/cosmetic/migrations/config/docs) — it mirrors the request in `src/background.ts`,
+so use it to verify the API contract after any change. The key is passed per call; nothing
+is stored or committed.
