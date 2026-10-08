@@ -125,10 +125,10 @@ for (const [name, mk] of [
 
     // Groups start collapsed; one the reviewer opened survives a redraw.
     const panel = document.body.appendChild(document.createElement("div"));
-    await t.render(panel, files, null);
+    await t.renderPanel(panel, files, null);
     assert.strictEqual(panel.querySelectorAll(".prl-group[open]").length, 0, `${name}: all groups collapsed by default`);
     panel.querySelector<HTMLDetailsElement>('.prl-group[data-category="tests"]')!.open = true;
-    await t.render(panel, files, "redraw");
+    await t.renderPanel(panel, files, "redraw");
     assert.deepStrictEqual(
       [...panel.querySelectorAll(".prl-group[open]")].map((d) => (d as HTMLElement).dataset.category),
       ["tests"],
@@ -140,7 +140,7 @@ for (const [name, mk] of [
     const ordered = [files[0], early];
     t.setCache({ files: ordered, tldr: { tldr: "x", terms: [], story: [{ path: P.core, why: "" }, { path: early.path, why: "" }] } });
     const orderPanel = document.body.appendChild(document.createElement("div"));
-    await t.render(orderPanel, ordered, null);
+    await t.renderPanel(orderPanel, ordered, null);
     assert.deepStrictEqual(
       [...orderPanel.querySelectorAll('.prl-group[data-category="core"] li')].map((li) => (li as HTMLElement).dataset.path),
       [P.core, early.path],

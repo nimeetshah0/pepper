@@ -69,6 +69,27 @@ chrome.storage?.onChanged.addListener((c) => {
 
 const send = (msg: unknown) => new Promise<any>((resolve) => chrome.runtime.sendMessage(msg, resolve));
 
+// MV3 service workers are idle-killed and the first message after an install can be dropped.
+// Without a timeout the panel would sit on "Loading diff…" forever; retry once, then fail visibly.
+function sendDiff(pr: string, tries = 2) {
+  return new Promise<any>((resolve) => {
+    let attempt = 0;
+    const go = () => {
+      let timer: ReturnType<typeof setTimeout>;
+      const timeout = new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error("no reply from the background worker")), 15000);
+      });
+      Promise.race([send({ type: "diff", pr }), timeout])
+        .then(resolve, (e) => {
+          clearTimeout(timer);
+          if (++attempt < tries) return go();
+          resolve({ error: String(e.message || e) });
+        });
+    };
+    go();
+  });
+}
+
 async function sha256(text: string): Promise<string> {
   const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
   return [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, "0")).join("");
@@ -98,7 +119,15 @@ function rootFor(panel: HTMLElement): Root {
   return root;
 }
 
-export async function render(panel: HTMLElement, files: FileChange[], note: string | null) {
+// Plasmo wraps every contents/ file with its CSUI mount template, which calls a module-level
+// `render` export as its custom-render hook (before checking for a default export). Ours mounts
+// imperatively into GitHub's DOM, so this is a deliberate no-op: returning without touching
+// `createRootContainer` keeps Plasmo from building a shadow-DOM overlay on every page.
+export function render(_props: unknown) {
+  return null;
+}
+
+export async function renderPanel(panel: HTMLElement, files: FileChange[], note: string | null) {
   const anchors = await Promise.all(files.map((f) => sha256(f.path)));
   files.forEach((f, i) => { f.anchor = `diff-${anchors[i]}`; });
   const steps = storySteps(files);
@@ -129,9 +158,9 @@ export function setCache(c: Partial<Cache> | null) {
 }
 
 export async function load(pr: string, panel: HTMLElement) {
-  if (cache?.pr === pr) return render(panel, cache.files, cache.note);
+  if (cache?.pr === pr) return renderPanel(panel, cache.files, cache.note);
   panel.textContent = "Loading diff…";
-  const diff = await send({ type: "diff", pr });
+  const diff = await sendDiff(pr);
   if (!diff?.text) { panel.textContent = `EasyPR couldn't load the diff (${diff?.error}).`; return; }
   const files = parseDiff(diff.text);
   collapsed = new Set();
@@ -139,7 +168,7 @@ export async function load(pr: string, panel: HTMLElement) {
   cache = { pr, files, note: "Classifying with Jev…" };
   summarizeAll(files);
   loadTldr(files);
-  await render(panel, files, "Classifying with Jev…");
+  await renderPanel(panel, files, "Classifying with Jev…");
 
   const ambiguous = files.filter((f) => JEV_SCOPE.has(f.category));
   if (!ambiguous.length) return finish(pr, panel, files, null);
@@ -174,7 +203,7 @@ async function loadTldr(files: FileChange[]) {
   cache.tldr = r?.error === "no key" ? null : r;
   // Redraw rather than paint in place: the story's reading order reorders the Core list.
   const panel = mounted?.root.querySelector<HTMLElement>(".prl-panel");
-  if (panel) await render(panel, files, cache.note);
+  if (panel) await renderPanel(panel, files, cache.note);
 }
 
 // Summaries fill in as they resolve; one coalesced redraw per frame instead of a render
@@ -186,7 +215,7 @@ function scheduleRedraw(files: FileChange[]) {
   requestAnimationFrame(() => {
     redrawQueued = false;
     const panel = mounted?.root.querySelector<HTMLElement>(".prl-panel");
-    if (panel && cache?.files === files) render(panel, files, cache.note);
+    if (panel && cache?.files === files) renderPanel(panel, files, cache.note);
   });
 }
 
@@ -375,7 +404,7 @@ export async function finish(pr: string, panel: HTMLElement, files: FileChange[]
   cache = { ...(cache as Cache), pr, files, note };
   // The panel may have been replaced by a remount while Jev was running.
   const target = mounted && mounted.pr === pr ? mounted.root.querySelector<HTMLElement>(".prl-panel") : panel;
-  return target ? render(target, files, note) : undefined;
+  return target ? renderPanel(target, files, note) : undefined;
 }
 
 export function mount(pr: string) {
@@ -401,7 +430,10 @@ export function mount(pr: string) {
   tree ? tree.before(root) : document.body.append(root);
   mounted = { pr, root, tree, apply };
   apply(showing());
-  load(pr, panel);
+  load(pr, panel).catch((e) => {
+    panel.textContent = `EasyPR failed: ${String(e?.message || e).split("\n")[0]}`;
+    console.error("[EasyPR] load failed:", e);
+  });
 }
 
 // The file being read is the last one whose diff starts above GitHub's sticky header.
