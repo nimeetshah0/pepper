@@ -9,7 +9,10 @@ function dataText() {
     name: "data-text",
     resolveId(source: string, importer?: string) {
       if (!source.startsWith("data-text:") || !importer) return null;
-      const file = resolve(dirname(importer), source.slice("data-text:".length));
+      const file = resolve(
+        dirname(importer),
+        source.slice("data-text:".length),
+      );
       return `\0data-text:${file}`;
     },
     load(id: string) {

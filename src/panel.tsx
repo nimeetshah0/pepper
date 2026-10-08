@@ -21,13 +21,20 @@ export interface StoryStep {
 
 // Renders `backticked` spans from the LLM as <code>.
 export function withCode(text: string) {
-  return text.split("`").map((part, i) => (i % 2 ? <code key={i}>{part}</code> : <span key={i}>{part}</span>));
+  return text
+    .split("`")
+    .map((part, i) =>
+      i % 2 ? <code key={i}>{part}</code> : <span key={i}>{part}</span>,
+    );
 }
 
 export function TldrContent({ tldr }: { tldr: TldrState }) {
   if (tldr === undefined) return <p className="prl-note">Writing TL;DR…</p>;
   if (!tldr) return null;
-  if (tldr.error) return <p className="prl-note">{`TL;DR unavailable (${String(tldr.error).slice(0, 160)}).`}</p>;
+  if (tldr.error)
+    return (
+      <p className="prl-note">{`TL;DR unavailable (${String(tldr.error).slice(0, 160)}).`}</p>
+    );
   return (
     <>
       <p className="prl-tldr-text">
@@ -71,7 +78,11 @@ export function Panel({
   const sections = DISPLAY_ORDER.map((id) => {
     const group = files
       .filter((f) => f.category === id)
-      .sort((a, b) => (rank.get(a.path) ?? Infinity) - (rank.get(b.path) ?? Infinity) || a.path.localeCompare(b.path));
+      .sort(
+        (a, b) =>
+          (rank.get(a.path) ?? Infinity) - (rank.get(b.path) ?? Infinity) ||
+          a.path.localeCompare(b.path),
+      );
     if (!group.length) return null;
     const cat = CATEGORIES.find((c) => c.id === id)!;
     const add = group.reduce((n, f) => n + f.additions, 0);
@@ -93,14 +104,22 @@ export function Panel({
                 <div className="prl-row">
                   <a
                     href={`#${f.anchor}`}
-                    title={f.confidence ? `${f.path} (Jev ${Math.round(f.confidence * 100)}%)` : f.path}
+                    title={
+                      f.confidence
+                        ? `${f.path} (Jev ${Math.round(f.confidence * 100)}%)`
+                        : f.path
+                    }
                   >
                     <span className="prl-name">{f.path.slice(slash + 1)}</span>
-                    <span className="prl-dir">{slash > 0 ? f.path.slice(0, slash) : ""}</span>
+                    <span className="prl-dir">
+                      {slash > 0 ? f.path.slice(0, slash) : ""}
+                    </span>
                   </a>
                   <span className="prl-add">{`+${f.additions}`}</span>
                   <span className="prl-del">{` −${f.deletions}`}</span>
-                  {f.status !== "modified" ? <span className="prl-tag">{f.status}</span> : null}
+                  {f.status !== "modified" ? (
+                    <span className="prl-tag">{f.status}</span>
+                  ) : null}
                 </div>
                 <p className="prl-file-summary" title={f.summary || ""}>
                   {f.summary || ""}

@@ -4,7 +4,12 @@ import { createRoot, type Root } from "react-dom/client";
 import { flushSync } from "react-dom";
 import cssText from "data-text:./github-pr.css";
 import { Panel, TldrContent, type StoryStep, type TldrState } from "../panel";
-import { DISPLAY_ORDER, parseDiff, type CategoryId, type FileChange } from "../categorize";
+import {
+  CATEGORIES,
+  parseDiff,
+  type CategoryId,
+  type FileChange,
+} from "../categorize";
 
 export const config: PlasmoCSConfig = {
   matches: ["https://github.com/*"],
@@ -59,7 +64,10 @@ export let story: Story | null = null; // { steps: [{ f, why }], i, card }
 let defaultOn = true;
 let override: boolean | null = null;
 const showing = () => override ?? defaultOn;
-chrome.storage?.local.get("defaultView").then((s) => { defaultOn = s.defaultView !== "tree"; mounted?.apply(showing()); });
+chrome.storage?.local.get("defaultView").then((s) => {
+  defaultOn = s.defaultView !== "tree";
+  mounted?.apply(showing());
+});
 chrome.storage?.onChanged.addListener((c) => {
   if (!c.defaultView) return;
   defaultOn = c.defaultView.newValue !== "tree";
@@ -67,32 +75,61 @@ chrome.storage?.onChanged.addListener((c) => {
   mounted?.apply(showing());
 });
 
-const send = (msg: unknown) => new Promise<any>((resolve) => chrome.runtime.sendMessage(msg, resolve));
+// Replies from the service worker (src/background.ts). Only our own extension ID can answer,
+// so these shapes are the contract it implements.
+interface DiffReply {
+  text?: string;
+  error?: string;
+}
+interface SummarizeReply {
+  summary?: string;
+  error?: string;
+}
+interface ClassifyReply {
+  results: Array<{ path: string; category: string; confidence: number }>;
+  error?: string;
+}
+
+function send<T>(msg: unknown): Promise<T | undefined> {
+  return new Promise<T | undefined>((resolve) =>
+    chrome.runtime.sendMessage(msg, (r: T | undefined) => resolve(r)),
+  );
+}
 
 // MV3 service workers are idle-killed and the first message after an install can be dropped.
 // Without a timeout the panel would sit on "Loading diff…" forever; retry once, then fail visibly.
-function sendDiff(pr: string, tries = 2) {
-  return new Promise<any>((resolve) => {
+function sendDiff(pr: string, tries = 2): Promise<DiffReply | undefined> {
+  return new Promise<DiffReply | undefined>((resolve) => {
     let attempt = 0;
     const go = () => {
       let timer: ReturnType<typeof setTimeout>;
       const timeout = new Promise<never>((_, reject) => {
-        timer = setTimeout(() => reject(new Error("no reply from the background worker")), 15000);
+        timer = setTimeout(
+          () => reject(new Error("no reply from the background worker")),
+          15000,
+        );
       });
-      Promise.race([send({ type: "diff", pr }), timeout])
-        .then(resolve, (e) => {
+      Promise.race([send<DiffReply>({ type: "diff", pr }), timeout]).then(
+        resolve,
+        (e) => {
           clearTimeout(timer);
           if (++attempt < tries) return go();
           resolve({ error: String(e.message || e) });
-        });
+        },
+      );
     };
     go();
   });
 }
 
 async function sha256(text: string): Promise<string> {
-  const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
-  return [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, "0")).join("");
+  const buf = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(text),
+  );
+  return [...new Uint8Array(buf)]
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
 }
 
 function el<K extends keyof HTMLElementTagNameMap>(
@@ -102,7 +139,7 @@ function el<K extends keyof HTMLElementTagNameMap>(
 ) {
   const node = document.createElement(tag);
   Object.assign(node, props);
-  node.append(...children.filter((c) => c != null) as Node[]);
+  node.append(...children.filter((c): c is Node | string => c != null));
   return node;
 }
 
@@ -127,9 +164,15 @@ export function render(_props: unknown) {
   return null;
 }
 
-export async function renderPanel(panel: HTMLElement, files: FileChange[], note: string | null) {
+export async function renderPanel(
+  panel: HTMLElement,
+  files: FileChange[],
+  note: string | null,
+) {
   const anchors = await Promise.all(files.map((f) => sha256(f.path)));
-  files.forEach((f, i) => { f.anchor = `diff-${anchors[i]}`; });
+  files.forEach((f, i) => {
+    f.anchor = `diff-${anchors[i]}`;
+  });
   const steps = storySteps(files);
   flushSync(() =>
     rootFor(panel).render(
@@ -161,9 +204,13 @@ export async function load(pr: string, panel: HTMLElement) {
   if (cache?.pr === pr) return renderPanel(panel, cache.files, cache.note);
   panel.textContent = "Loading diff…";
   const diff = await sendDiff(pr);
-  if (!diff?.text) { panel.textContent = `EasyPR couldn't load the diff (${diff?.error}).`; return; }
+  if (!diff?.text) {
+    panel.textContent = `EasyPR couldn't load the diff (${diff?.error}).`;
+    return;
+  }
   const files = parseDiff(diff.text);
   collapsed = new Set();
+  pinnedPath = null;
   closeStory();
   cache = { pr, files, note: "Classifying with Jev…" };
   summarizeAll(files);
@@ -172,16 +219,33 @@ export async function load(pr: string, panel: HTMLElement) {
 
   const ambiguous = files.filter((f) => JEV_SCOPE.has(f.category));
   if (!ambiguous.length) return finish(pr, panel, files, null);
-  const jev = await send({ type: "classify", files: ambiguous.map(({ path, patch }) => ({ path, patch })) });
-  if (jev?.error === "no key") return finish(pr, panel, files, "Path heuristics only. Add a TypeSafe key in the EasyPR toolbar popup to classify with Jev.");
+  const jev = await send<ClassifyReply>({
+    type: "classify",
+    files: ambiguous.map(({ path, patch }) => ({ path, patch })),
+  });
+  if (jev?.error === "no key")
+    return finish(
+      pr,
+      panel,
+      files,
+      "Path heuristics only. Add a TypeSafe key in the EasyPR toolbar popup to classify with Jev.",
+    );
   for (const r of jev?.results || []) {
     const f = files.find((x) => x.path === r.path);
-    if (f && r.confidence >= JEV_MIN_CONFIDENCE && DISPLAY_ORDER.includes(r.category)) {
-      f.category = r.category;
+    const category = parseCategory(r.category);
+    if (f && category && r.confidence >= JEV_MIN_CONFIDENCE) {
+      f.category = category;
       f.confidence = r.confidence;
     }
   }
-  await finish(pr, panel, files, jev?.error ? `Jev failed for some files (${jev.error}); those use path heuristics.` : null);
+  await finish(
+    pr,
+    panel,
+    files,
+    jev?.error
+      ? `Jev failed for some files (${jev.error}); those use path heuristics.`
+      : null,
+  );
 }
 
 // The Files changed page doesn't carry the description, so read it from the conversation page.
@@ -189,16 +253,28 @@ async function prDescription(): Promise<string> {
   try {
     const pr = location.pathname.match(PR_PATH)![1];
     const html = await (await fetch(`/${pr}`)).text();
-    const body = new DOMParser().parseFromString(html, "text/html").querySelector('[id^="pullrequest-"] .js-comment-body');
+    const body = new DOMParser()
+      .parseFromString(html, "text/html")
+      .querySelector('[id^="pullrequest-"] .js-comment-body');
     return (body?.textContent?.trim() || "").slice(0, 10000);
-  } catch { return ""; }
+  } catch {
+    return "";
+  }
 }
 
 async function loadTldr(files: FileChange[]) {
-  const diff = files.filter((f) => f.category !== "generated").map((f) => `diff --git ${f.patch}`).join("");
+  const diff = files
+    .filter((f) => f.category !== "generated")
+    .map((f) => `diff --git ${f.patch}`)
+    .join("");
   // GitHub's tab title starts with the PR title, then " by <author> · Pull Request #N".
   const title = document.title.split(" by ")[0];
-  const r = await send({ type: "tldr", title, body: await prDescription(), diff });
+  const r = await send<TldrState>({
+    type: "tldr",
+    title,
+    body: await prDescription(),
+    diff,
+  });
   if (cache?.files !== files) return;
   cache.tldr = r?.error === "no key" ? null : r;
   // Redraw rather than paint in place: the story's reading order reorders the Core list.
@@ -222,46 +298,81 @@ function scheduleRedraw(files: FileChange[]) {
 async function summarizeAll(files: FileChange[]) {
   const queue = files.filter((f) => f.category !== "generated");
   let stop = false;
-  await Promise.all(Array.from({ length: SUMMARY_CONCURRENCY }, async () => {
-    for (let f; !stop && (f = queue.shift()); ) {
-      const r = await send({ type: "summarize", path: f.path, patch: f.patch });
-      if (r?.error === "no key") { stop = true; return; }
-      f.summary = r?.summary || `Summary unavailable (${String(r?.error).slice(0, 160)}).`;
-      scheduleRedraw(files);
-    }
-  }));
+  await Promise.all(
+    Array.from({ length: SUMMARY_CONCURRENCY }, async () => {
+      for (let f; !stop && (f = queue.shift());) {
+        const r = await send<SummarizeReply>({
+          type: "summarize",
+          path: f.path,
+          patch: f.patch,
+        });
+        if (r?.error === "no key") {
+          stop = true;
+          return;
+        }
+        f.summary =
+          r?.summary ||
+          `Summary unavailable (${String(r?.error).slice(0, 160)}).`;
+        scheduleRedraw(files);
+      }
+    }),
+  );
 }
 
 // The diff-<sha256(path)> id marks one file; climb to the largest ancestor that still holds only
 // that file, which contains its header controls in both the classic and React diff UIs.
 function fileScope(anchor: string): Element | null {
   let node: Element | null = document.getElementById(anchor);
-  const fileCount = (n: Element) => [...n.querySelectorAll('[id^="diff-"]')].filter((x) => FILE_ID.test(x.id)).length;
-  while (node?.parentElement && node.parentElement !== document.body && fileCount(node.parentElement) <= 1) node = node.parentElement;
+  const fileCount = (n: Element) =>
+    [...n.querySelectorAll('[id^="diff-"]')].filter((x) => FILE_ID.test(x.id))
+      .length;
+  while (
+    node?.parentElement &&
+    node.parentElement !== document.body &&
+    fileCount(node.parentElement) <= 1
+  )
+    node = node.parentElement;
   return node;
 }
 
 function accessibleName(node: Element): string {
   const ids = node.getAttribute("aria-labelledby");
-  return (node.getAttribute("aria-label") || (ids && ids.split(" ").map((id) => document.getElementById(id)?.textContent).join(" ")) || node.textContent || "").trim();
+  return (
+    node.getAttribute("aria-label") ||
+    (ids &&
+      ids
+        .split(" ")
+        .map((id) => document.getElementById(id)?.textContent)
+        .join(" ")) ||
+    node.textContent ||
+    ""
+  ).trim();
 }
 
-const findButton = (scope: Element, re: RegExp) => [...scope.querySelectorAll("button")].find((b) => re.test(accessibleName(b)));
+const findButton = (scope: Element, re: RegExp) =>
+  [...scope.querySelectorAll("button")].find((b) => re.test(accessibleName(b)));
 
 // GitHub renders diffs lazily, so this runs on every tick and catches files as they appear.
 export function collapsePadding(files: FileChange[]) {
   for (const f of files) {
-    if (!PADDING.has(f.category) || !f.anchor || collapsed.has(f.anchor)) continue;
+    if (!PADDING.has(f.category) || !f.anchor || collapsed.has(f.anchor))
+      continue;
     const scope = fileScope(f.anchor);
     if (!scope) continue;
     collapsed.add(f.anchor);
     const button = findButton(scope, /^(collapse file|toggle diff contents)$/i);
-    if (!button) { console.debug("[EasyPR] no collapse control for", f.path); continue; }
+    if (!button) {
+      console.debug("[EasyPR] no collapse control for", f.path);
+      continue;
+    }
     if (button.getAttribute("aria-expanded") !== "false") button.click();
   }
 }
 
-const foldCount = (f: FileChange) => (f.category === "core" ? f.folds.reduce((n, r) => n + r.old.length + r.new.length, 0) : 0);
+const foldCount = (f: FileChange) =>
+  f.category === "core"
+    ? f.folds.reduce((n, r) => n + r.old.length + r.new.length, 0)
+    : 0;
 
 // Diff rows carry old/new line numbers in their first two cells: as text in the React UI,
 // as data-line-number in the classic one. Split view doesn't match this shape and is left alone.
@@ -269,10 +380,15 @@ function numberedRow(tr: HTMLTableRowElement) {
   const [a, b] = tr.cells;
   if (!a || !b) return null;
   const num = (c: HTMLTableCellElement) => {
-    const t = (c.getAttribute("data-line-number") ?? c.textContent ?? "").trim();
+    const t = (
+      c.getAttribute("data-line-number") ??
+      c.textContent ??
+      ""
+    ).trim();
     return t === "" ? 0 : /^\d+$/.test(t) ? Number(t) : NaN;
   };
-  const oldN = num(a), newN = num(b);
+  const oldN = num(a),
+    newN = num(b);
   if (Number.isNaN(oldN) || Number.isNaN(newN) || (!oldN && !newN)) return null;
   return { tr, oldN, newN };
 }
@@ -289,14 +405,21 @@ export function foldPadding(files: FileChange[]) {
     for (const tr of scope.querySelectorAll<HTMLTableRowElement>("tr")) {
       const row = numberedRow(tr);
       if (!row) continue;
-      const folded = (row.oldN && !row.newN && oldSet.has(row.oldN)) || (row.newN && !row.oldN && newSet.has(row.newN));
-      if (folded) { tr.style.display = "none"; tr.dataset.samwiseFolded = ""; }
+      const folded =
+        (row.oldN && !row.newN && oldSet.has(row.oldN)) ||
+        (row.newN && !row.oldN && newSet.has(row.newN));
+      if (folded) {
+        tr.style.display = "none";
+        tr.dataset.samwiseFolded = "";
+      }
     }
   }
 }
 
 export function unfoldAll() {
-  for (const tr of document.querySelectorAll<HTMLElement>("tr[data-samwise-folded]")) {
+  for (const tr of document.querySelectorAll<HTMLElement>(
+    "tr[data-samwise-folded]",
+  )) {
     tr.style.display = "";
     delete tr.dataset.samwiseFolded;
   }
@@ -305,11 +428,21 @@ export function unfoldAll() {
 export function markViewed(f: FileChange) {
   if (!f.anchor) return;
   const scope = fileScope(f.anchor);
-  const control = scope && (
-    [...scope.querySelectorAll<HTMLInputElement>("input[type=checkbox]")].find((c) => /viewed/i.test(c.closest("label")?.textContent || c.getAttribute("aria-label") || "")) ||
-    findButton(scope, /^(not )?viewed$/i));
+  const control =
+    scope &&
+    ([...scope.querySelectorAll<HTMLInputElement>("input[type=checkbox]")].find(
+      (c) =>
+        /viewed/i.test(
+          c.closest("label")?.textContent || c.getAttribute("aria-label") || "",
+        ),
+    ) ||
+      findButton(scope, /^(not )?viewed$/i));
   if (!control) return console.debug("[EasyPR] no Viewed control for", f.path);
-  const viewed = (control as HTMLInputElement).checked ?? (control.getAttribute("aria-pressed") || control.getAttribute("aria-checked")) === "true";
+  const viewed =
+    control instanceof HTMLInputElement
+      ? control.checked
+      : (control.getAttribute("aria-pressed") ||
+          control.getAttribute("aria-checked")) === "true";
   if (!viewed) control.click();
 }
 
@@ -319,10 +452,16 @@ export function storySteps(files: FileChange[]): StoryStep[] {
   const steps: StoryStep[] = [];
   for (const { path, why } of cache?.tldr?.story || []) {
     const f = byPath.get(path);
-    if (f && STORY_ORDER.includes(f.category) && !seen.has(f)) { seen.add(f); steps.push({ f, why }); }
+    if (f && STORY_ORDER.includes(f.category) && !seen.has(f)) {
+      seen.add(f);
+      steps.push({ f, why });
+    }
   }
   for (const cat of STORY_ORDER) {
-    for (const f of files.filter((x) => x.category === cat && !seen.has(x)).sort((a, b) => a.path.localeCompare(b.path))) steps.push({ f, why: null });
+    for (const f of files
+      .filter((x) => x.category === cat && !seen.has(x))
+      .sort((a, b) => a.path.localeCompare(b.path)))
+      steps.push({ f, why: null });
   }
   return steps;
 }
@@ -339,7 +478,8 @@ export function closeStory() {
 }
 
 function goTo(anchor: string) {
-  if (location.hash === `#${anchor}`) document.getElementById(anchor)?.scrollIntoView({ block: "start" });
+  if (location.hash === `#${anchor}`)
+    document.getElementById(anchor)?.scrollIntoView({ block: "start" });
   else location.hash = anchor;
 }
 
@@ -357,17 +497,52 @@ function showStep() {
   goTo(f.anchor!);
   const last = i === steps.length - 1;
   showCard(
-    el("div", { className: "prl-story-head" },
+    el(
+      "div",
+      { className: "prl-story-head" },
       el("span", { textContent: `Story ${i + 1}/${steps.length}` }),
-      el("button", { type: "button", className: "prl-story-x", textContent: "✕", title: "Exit story", onclick: closeStory })),
+      el("button", {
+        type: "button",
+        className: "prl-story-x",
+        textContent: "✕",
+        title: "Exit story",
+        onclick: closeStory,
+      }),
+    ),
     el("progress", { max: steps.length, value: i }),
-    el("p", { className: "prl-name", textContent: f.path.slice(f.path.lastIndexOf("/") + 1) }),
+    el("p", {
+      className: "prl-name",
+      textContent: f.path.slice(f.path.lastIndexOf("/") + 1),
+    }),
     el("p", { className: "prl-dir", textContent: f.path }),
-    why || f.summary ? el("p", { className: "prl-file-summary", textContent: why || f.summary, title: f.summary || "" }) : null,
-    el("div", { className: "prl-story-nav" },
-      el("button", { type: "button", textContent: "‹ Prev", disabled: i === 0, onclick: () => move(-1) }),
-      el("button", { type: "button", className: "prl-story-next", textContent: last ? "Viewed & finish ✓" : "Viewed & next ›", onclick: viewedAndNext })),
-    el("p", { className: "prl-story-keys", textContent: "j / k move · v viewed & next · esc exit" }));
+    why || f.summary
+      ? el("p", {
+          className: "prl-file-summary",
+          textContent: why || f.summary,
+          title: f.summary || "",
+        })
+      : null,
+    el(
+      "div",
+      { className: "prl-story-nav" },
+      el("button", {
+        type: "button",
+        textContent: "‹ Prev",
+        disabled: i === 0,
+        onclick: () => move(-1),
+      }),
+      el("button", {
+        type: "button",
+        className: "prl-story-next",
+        textContent: last ? "Viewed & finish ✓" : "Viewed & next ›",
+        onclick: viewedAndNext,
+      }),
+    ),
+    el("p", {
+      className: "prl-story-keys",
+      textContent: "j / k move · v viewed & next · esc exit",
+    }),
+  );
 }
 
 function move(delta: number) {
@@ -384,26 +559,55 @@ function viewedAndNext() {
   markViewed(steps[i].f);
   if (i < steps.length - 1) return move(1);
   showCard(
-    el("p", { className: "prl-story-done", textContent: `🎉 Story done: ${steps.length} files reviewed.` }),
-    el("button", { type: "button", textContent: "Close", onclick: closeStory }));
+    el("p", {
+      className: "prl-story-done",
+      textContent: `🎉 Story done: ${steps.length} files reviewed.`,
+    }),
+    el("button", { type: "button", textContent: "Close", onclick: closeStory }),
+  );
   story.done = true;
 }
 
 // Capture phase, so these win over GitHub's own single-key shortcuts while a story is open.
-document.addEventListener("keydown", (e) => {
-  if (!story || e.metaKey || e.ctrlKey || e.altKey) return;
-  if (e.target instanceof Element && e.target.closest("input, textarea, select, [contenteditable]:not([contenteditable='false'])")) return;
-  const action = story.done ? { Escape: closeStory }[e.key] : { j: () => move(1), k: () => move(-1), v: viewedAndNext, Escape: closeStory }[e.key];
-  if (!action) return;
-  e.preventDefault();
-  e.stopPropagation();
-  action();
-}, true);
+document.addEventListener(
+  "keydown",
+  (e) => {
+    if (!story || e.metaKey || e.ctrlKey || e.altKey) return;
+    if (
+      e.target instanceof Element &&
+      e.target.closest(
+        "input, textarea, select, [contenteditable]:not([contenteditable='false'])",
+      )
+    )
+      return;
+    const action = story.done
+      ? { Escape: closeStory }[e.key]
+      : {
+          j: () => move(1),
+          k: () => move(-1),
+          v: viewedAndNext,
+          Escape: closeStory,
+        }[e.key];
+    if (!action) return;
+    e.preventDefault();
+    e.stopPropagation();
+    action();
+  },
+  true,
+);
 
-export async function finish(pr: string, panel: HTMLElement, files: FileChange[], note: string | null) {
-  cache = { ...(cache as Cache), pr, files, note };
+export async function finish(
+  pr: string,
+  panel: HTMLElement,
+  files: FileChange[],
+  note: string | null,
+) {
+  cache = { tldr: cache?.tldr, pr, files, note };
   // The panel may have been replaced by a remount while Jev was running.
-  const target = mounted && mounted.pr === pr ? mounted.root.querySelector<HTMLElement>(".prl-panel") : panel;
+  const target =
+    mounted && mounted.pr === pr
+      ? mounted.root.querySelector<HTMLElement>(".prl-panel")
+      : panel;
   return target ? renderPanel(target, files, note) : undefined;
 }
 
@@ -411,12 +615,21 @@ export function mount(pr: string) {
   if (mounted) {
     const old = mounted.root.querySelector<HTMLElement>(".prl-panel");
     if (old) roots.get(old)?.unmount();
+    if (mounted.tree) mounted.tree.style.display = "";
     mounted.root.remove();
   }
-  const tree = (TREE_SELECTORS.map((s) => document.querySelector(s)).find(Boolean) as HTMLElement | undefined) ?? null;
+  const tree =
+    TREE_SELECTORS.map((s) => document.querySelector<HTMLElement>(s)).find(
+      (n): n is HTMLElement => n != null,
+    ) ?? null;
   const panel = el("div", { className: "prl-panel" });
   const toggle = el("button", { type: "button", className: "prl-toggle" });
-  const root = el("div", { className: tree ? "prl-root" : "prl-root prl-floating" }, toggle, panel);
+  const root = el(
+    "div",
+    { className: tree ? "prl-root" : "prl-root prl-floating" },
+    toggle,
+    panel,
+  );
 
   const apply = (on: boolean) => {
     toggle.textContent = on ? "Show file tree" : "Show categorized view";
@@ -425,9 +638,13 @@ export function mount(pr: string) {
     if (tree) tree.style.display = on ? "none" : "";
     if (!on) unfoldAll();
   };
-  toggle.onclick = () => { override = panel.hidden; apply(override); };
+  toggle.onclick = () => {
+    override = panel.hidden;
+    apply(override);
+  };
 
-  tree ? tree.before(root) : document.body.append(root);
+  if (tree) tree.before(root);
+  else document.body.append(root);
   mounted = { pr, root, tree, apply };
   apply(showing());
   load(pr, panel).catch((e) => {
@@ -442,37 +659,130 @@ export function currentFile(files: FileChange[]): FileChange | null {
   let best: FileChange | null = null;
   let bestTop = -Infinity;
   for (const f of files) {
-    const top = f.anchor ? document.getElementById(f.anchor)?.getBoundingClientRect().top : undefined;
-    if (top != null && top <= READING_LINE && top > bestTop) { best = f; bestTop = top; }
+    const top = f.anchor
+      ? document.getElementById(f.anchor)?.getBoundingClientRect().top
+      : undefined;
+    if (top != null && top <= READING_LINE && top > bestTop) {
+      best = f;
+      bestTop = top;
+    }
   }
   return best;
 }
 
 function highlightCurrent() {
   if (!mounted || !cache?.files) return;
-  const path = currentFile(cache.files)?.path;
-  for (const li of mounted.root.querySelectorAll<HTMLLIElement>(".prl-group li")) li.classList.toggle("prl-current", li.dataset.path === path);
+  const path = pinnedPath ?? currentFile(cache.files)?.path;
+  for (const li of mounted.root.querySelectorAll<HTMLLIElement>(
+    ".prl-group li",
+  ))
+    li.classList.toggle("prl-current", li.dataset.path === path);
 }
 
 let highlightQueued = false;
 // Capture phase: GitHub may scroll the diff inside its own container rather than the window.
-document.addEventListener("scroll", () => {
-  if (highlightQueued) return;
-  highlightQueued = true;
-  requestAnimationFrame(() => { highlightQueued = false; highlightCurrent(); });
-}, { capture: true, passive: true });
+document.addEventListener(
+  "scroll",
+  () => {
+    if (highlightQueued) return;
+    highlightQueued = true;
+    requestAnimationFrame(() => {
+      highlightQueued = false;
+      highlightCurrent();
+    });
+  },
+  { capture: true, passive: true },
+);
+
+// Clicking a file pins the highlight to it. GitHub's lazy rendering, scroll anchoring and
+// short-file geometry mean a hash jump often leaves the clicked file below the reading line
+// (or the next file's header above it), where the scroll rule would keep the wrong file
+// highlighted. The pin is authoritative until the reviewer clearly moves on: an explicit
+// scroll gesture (wheel/touch/scroll keys/scrollbar drag) or another click.
+let pinnedPath: string | null = null;
+
+function pinFile(path: string) {
+  pinnedPath = path;
+  highlightCurrent();
+}
+
+const releasePin = () => {
+  pinnedPath = null;
+  highlightCurrent();
+};
+
+const RELEASE_KEYS = new Set([
+  "PageUp",
+  "PageDown",
+  "Home",
+  "End",
+  "ArrowUp",
+  "ArrowDown",
+  " ",
+  "j",
+  "k",
+]);
+window.addEventListener("wheel", releasePin, { passive: true });
+window.addEventListener("touchmove", releasePin, { passive: true });
+document.addEventListener("keydown", (e) => {
+  if (RELEASE_KEYS.has(e.key)) releasePin();
+});
+// Mousedown on the document/body (not on page content) is how a scrollbar drag starts.
+document.addEventListener("mousedown", (e) => {
+  if (e.target === document.documentElement || e.target === document.body)
+    releasePin();
+});
+
+// Jev returns the category as a plain string; only accept ids we know.
+const parseCategory = (c: string): CategoryId | undefined =>
+  CATEGORIES.find((cat) => cat.id === c)?.id;
+
+const fileByAnchor = (anchor: string) =>
+  cache?.files.find((f) => f.anchor === anchor);
+
+document.addEventListener("click", (e) => {
+  const a =
+    e.target instanceof Element
+      ? e.target.closest<HTMLAnchorElement>('a[href^="#diff-"]')
+      : null;
+  const f = a && fileByAnchor(a.hash.slice(1));
+  if (f) pinFile(f.path);
+});
+
+// Back/forward, or a hash pasted into the URL bar.
+window.addEventListener("hashchange", () => {
+  const f = fileByAnchor(location.hash.slice(1));
+  if (f) pinFile(f.path);
+});
 
 // GitHub navigates client-side, so poll the URL rather than relying on page loads.
 const pollTimer = setInterval(() => {
   const pr = location.pathname.match(PR_PATH)?.[1];
   if (!pr) {
-    if (mounted) { mounted.tree && (mounted.tree.style.display = ""); mounted.root.remove(); mounted = null; closeStory(); }
+    if (mounted) {
+      if (mounted.tree) mounted.tree.style.display = "";
+      mounted.root.remove();
+      mounted = null;
+      closeStory();
+      pinnedPath = null;
+    }
     return;
   }
-  const treeNow = (TREE_SELECTORS.map((s) => document.querySelector(s)).find(Boolean) as HTMLElement | undefined) ?? null;
-  if (!mounted || mounted.pr !== pr || !mounted.root.isConnected || (treeNow && treeNow !== mounted.tree)) mount(pr);
-  if (cache && cache.pr === pr && showing()) { collapsePadding(cache.files); foldPadding(cache.files); }
-  else unfoldAll();
+  const treeNow =
+    TREE_SELECTORS.map((s) => document.querySelector<HTMLElement>(s)).find(
+      (n): n is HTMLElement => n != null,
+    ) ?? null;
+  if (
+    !mounted ||
+    mounted.pr !== pr ||
+    !mounted.root.isConnected ||
+    (treeNow && treeNow !== mounted.tree)
+  )
+    mount(pr);
+  if (cache && cache.pr === pr && showing()) {
+    collapsePadding(cache.files);
+    foldPadding(cache.files);
+  } else unfoldAll();
 }, 1000);
 
 // Test seam: stops the mount/poll loop so jsdom tests control mounting themselves.

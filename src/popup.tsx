@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import logo from "../assets/logo.svg";
 import "./popup.css";
 
-const KEYS = ["typesafeKey", "openaiKey"] as const;
+const KEYS: Array<"typesafeKey" | "openaiKey"> = ["typesafeKey", "openaiKey"];
 
 interface Stored {
   typesafeKey?: string;
@@ -16,10 +16,15 @@ export default function Popup() {
   const [saved, setSaved] = useState("");
 
   useEffect(() => {
-    chrome.storage.local.get([...KEYS, "defaultView"]).then((stored: Stored) => {
-      setKeys({ typesafeKey: stored.typesafeKey || "", openaiKey: stored.openaiKey || "" });
-      setView(stored.defaultView === "tree" ? "tree" : "categorized");
-    });
+    chrome.storage.local
+      .get([...KEYS, "defaultView"])
+      .then((stored: Stored) => {
+        setKeys({
+          typesafeKey: stored.typesafeKey || "",
+          openaiKey: stored.openaiKey || "",
+        });
+        setView(stored.defaultView === "tree" ? "tree" : "categorized");
+      });
   }, []);
 
   const save = async () => {
@@ -95,7 +100,10 @@ export default function Popup() {
             onChange={(e) => setKeys({ ...keys, openaiKey: e.target.value })}
           />
         </label>
-        <p className="note">Either can be empty. With a key, diffs are sent to api.typesafe.ai or api.openai.com.</p>
+        <p className="note">
+          Either can be empty. With a key, diffs are sent to api.typesafe.ai or
+          api.openai.com.
+        </p>
         <div className="row">
           <button id="save" onClick={save}>
             Save keys

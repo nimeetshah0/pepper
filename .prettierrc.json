@@ -1,0 +1,4 @@
+{
+  "plugins": ["@plasmohq/prettier-plugin-sort-imports"],
+  "importOrder": ["^@plasmohq/(.*)$", "^~(.*)$", "^[./]"]
+}

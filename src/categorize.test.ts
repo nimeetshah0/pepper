@@ -24,7 +24,8 @@ const cases = {
 };
 
 test("categorize", () => {
-  for (const [path, want] of Object.entries(cases)) assert.strictEqual(categorize(path), want, path);
+  for (const [path, want] of Object.entries(cases))
+    assert.strictEqual(categorize(path), want, path);
 });
 
 const diff = `diff --git a/lib/a.ex b/lib/a.ex
@@ -47,9 +48,18 @@ rename to new.md
 `;
 const [a, b, c] = parseDiff(diff);
 test("parseDiff basics", () => {
-  assert.deepStrictEqual([a.path, a.category, a.additions, a.deletions], ["lib/a.ex", "cosmetic", 1, 1]);
-  assert.deepStrictEqual([b.path, b.category, b.status, b.additions], ["lib/b.ex", "core", "added", 1]);
-  assert.deepStrictEqual([c.path, c.status, c.category], ["new.md", "renamed", "docs"]);
+  assert.deepStrictEqual(
+    [a.path, a.category, a.additions, a.deletions],
+    ["lib/a.ex", "cosmetic", 1, 1],
+  );
+  assert.deepStrictEqual(
+    [b.path, b.category, b.status, b.additions],
+    ["lib/b.ex", "core", "added", 1],
+  );
+  assert.deepStrictEqual(
+    [c.path, c.status, c.category],
+    ["new.md", "renamed", "docs"],
+  );
 });
 
 // Elixir maps and structs start with %, which is code, not a comment.
@@ -117,6 +127,13 @@ test("shebang is code", () => {
 // Optional: EASYPR_DIFF=/path/to.diff npm test prints the category breakdown for a real diff.
 if (process.env.EASYPR_DIFF) {
   const real = parseDiff(fs.readFileSync(process.env.EASYPR_DIFF, "utf8"));
-  console.log(real.map((f) => `${f.category.padEnd(10)} +${f.additions} -${f.deletions} ${f.path}`).join("\n"));
+  console.log(
+    real
+      .map(
+        (f) =>
+          `${f.category.padEnd(10)} +${f.additions} -${f.deletions} ${f.path}`,
+      )
+      .join("\n"),
+  );
 }
 console.log("ok");
