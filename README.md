@@ -1,4 +1,4 @@
-# EasyPR
+# Pepper
 
 Your companion through long PRs: it carries the review when the diff is 900 lines of AI-written code.
 
@@ -21,12 +21,38 @@ npm run typecheck
 
 Install: `chrome://extensions` → Developer mode → Load unpacked → `build/chrome-mv3-dev`
 (or `-prod` after `npm run build`). To update: rerun the build, then hit reload on the
-EasyPR card.
+Pepper card.
 
 Optional keys live in the toolbar popup (pin it from the puzzle-piece menu): TypeSafe
 (Jev reclassifies core/config files) and OpenAI (per-file summaries, PR TL;DR + glossary,
 reading order; cached by prompt + diff). Without keys the extension is a fully local,
 deterministic categorizer.
+
+## Description
+
+**Tagline** (also `manifest.description` and the popup header): _"Helps you understand what the machines built"_.
+
+Longer Chrome Web Store listing copy:
+
+Longer Chrome Web Store description:
+
+> Pepper reads pull requests with you.
+>
+> GitHub's file list is flat and indifferent. Pepper groups every changed file by the attention it deserves:
+>
+> - **Core changes** — production code whose behaviour or contract changes. This is your review.
+> - **Cosmetic only** — comments, formatting, renames. Skim or skip.
+> - **Migrations, config & CI, tests, docs, AI tooling, generated files** — tidied into groups with +/- counts.
+>
+> A header stat shows what share of the diff is actually core code, so you know the real review size before you start. Padding collapses automatically, comment-only churn folds inside core files, and **Review story** walks the files that matter in order — marking each one viewed as you go.
+>
+> Optional bring-your-own-key AI, off by default — without your keys, the diff never leaves your browser:
+>
+> - Per-file summaries: what changed, what to check
+> - PR TL;DR with a glossary of project-specific terms and a suggested reading order
+> - Jev double-checks the trickiest core/config classifications
+>
+> Without keys, Pepper is a fully local categorizer. Works on any GitHub repo, public or private, no account required.
 
 ## What changed from the vanilla build
 
@@ -56,6 +82,10 @@ src/
   contents/github-pr.ts    content script: mount loop, collapse/fold, story mode (test hooks exported)
   contents/github-pr.css   panel/story styles
   contents/github-pr.test.ts  behavior tests against fake GitHub DOM (both diff UIs)
+
+scripts/
+  test-jev.mjs             live API-contract check for the Jev classifier (key passed per call)
+  make-logo.mjs            regenerates assets/logo.svg; icon*.png are sips renders of it
 ```
 
 ## Tests

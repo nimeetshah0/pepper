@@ -205,7 +205,7 @@ export async function load(pr: string, panel: HTMLElement) {
   panel.textContent = "Loading diff…";
   const diff = await sendDiff(pr);
   if (!diff?.text) {
-    panel.textContent = `EasyPR couldn't load the diff (${diff?.error}).`;
+    panel.textContent = `Pepper couldn't load the diff (${diff?.error}).`;
     return;
   }
   const files = parseDiff(diff.text);
@@ -228,7 +228,7 @@ export async function load(pr: string, panel: HTMLElement) {
       pr,
       panel,
       files,
-      "Path heuristics only. Add a TypeSafe key in the EasyPR toolbar popup to classify with Jev.",
+      "Path heuristics only. Add a TypeSafe key in the Pepper toolbar popup to classify with Jev.",
     );
   for (const r of jev?.results || []) {
     const f = files.find((x) => x.path === r.path);
@@ -362,7 +362,7 @@ export function collapsePadding(files: FileChange[]) {
     collapsed.add(f.anchor);
     const button = findButton(scope, /^(collapse file|toggle diff contents)$/i);
     if (!button) {
-      console.debug("[EasyPR] no collapse control for", f.path);
+      console.debug("[Pepper] no collapse control for", f.path);
       continue;
     }
     if (button.getAttribute("aria-expanded") !== "false") button.click();
@@ -410,7 +410,7 @@ export function foldPadding(files: FileChange[]) {
         (row.newN && !row.oldN && newSet.has(row.newN));
       if (folded) {
         tr.style.display = "none";
-        tr.dataset.samwiseFolded = "";
+        tr.dataset.pepperFolded = "";
       }
     }
   }
@@ -418,10 +418,10 @@ export function foldPadding(files: FileChange[]) {
 
 export function unfoldAll() {
   for (const tr of document.querySelectorAll<HTMLElement>(
-    "tr[data-samwise-folded]",
+    "tr[data-pepper-folded]",
   )) {
     tr.style.display = "";
-    delete tr.dataset.samwiseFolded;
+    delete tr.dataset.pepperFolded;
   }
 }
 
@@ -437,7 +437,7 @@ export function markViewed(f: FileChange) {
         ),
     ) ||
       findButton(scope, /^(not )?viewed$/i));
-  if (!control) return console.debug("[EasyPR] no Viewed control for", f.path);
+  if (!control) return console.debug("[Pepper] no Viewed control for", f.path);
   const viewed =
     control instanceof HTMLInputElement
       ? control.checked
@@ -648,8 +648,8 @@ export function mount(pr: string) {
   mounted = { pr, root, tree, apply };
   apply(showing());
   load(pr, panel).catch((e) => {
-    panel.textContent = `EasyPR failed: ${String(e?.message || e).split("\n")[0]}`;
-    console.error("[EasyPR] load failed:", e);
+    panel.textContent = `Pepper failed: ${String(e?.message || e).split("\n")[0]}`;
+    console.error("[Pepper] load failed:", e);
   });
 }
 

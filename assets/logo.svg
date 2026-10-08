@@ -1,37 +1,28 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
-  <defs>
-    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#ffe7ad"/>
-      <stop offset="1" stop-color="#f2a64a"/>
-    </linearGradient>
-    <linearGradient id="hill" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#6cb86a"/>
-      <stop offset="1" stop-color="#2f7a3d"/>
-    </linearGradient>
-    <radialGradient id="door" cx="0.42" cy="0.38" r="0.7">
-      <stop offset="0" stop-color="#48a65e"/>
-      <stop offset="1" stop-color="#1f6233"/>
-    </radialGradient>
-    <radialGradient id="knob" cx="0.35" cy="0.35" r="0.7">
-      <stop offset="0" stop-color="#fff2a8"/>
-      <stop offset="1" stop-color="#d99a1c"/>
-    </radialGradient>
-    <clipPath id="tile"><rect width="128" height="128" rx="28"/></clipPath>
-    <clipPath id="doorClip"><circle cx="64" cy="84" r="29"/></clipPath>
-  </defs>
-  <g clip-path="url(#tile)">
-    <rect width="128" height="128" fill="url(#sky)"/>
-    <circle cx="98" cy="30" r="11" fill="#fff6d6" opacity="0.85"/>
-    <path d="M-4 80 C 26 52, 102 52, 132 80 V132 H-4 Z" fill="url(#hill)"/>
-    <circle cx="64" cy="84" r="35" fill="#c8955a"/>
-    <circle cx="64" cy="84" r="35" fill="none" stroke="#8a5a2b" stroke-width="2"/>
-    <circle cx="64" cy="84" r="29" fill="url(#door)"/>
-    <g clip-path="url(#doorClip)" stroke="#164a26" stroke-width="2" opacity="0.45">
-      <line x1="45" y1="50" x2="45" y2="118"/>
-      <line x1="54.5" y1="50" x2="54.5" y2="118"/>
-      <line x1="73.5" y1="50" x2="73.5" y2="118"/>
-      <line x1="83" y1="50" x2="83" y2="118"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Pepper">
+  <!-- Workshop badge: warm paper ground, like the extension's popup -->
+  <rect width="512" height="512" rx="112" fill="#FFF8EC"/>
+  <g transform="translate(256 256) rotate(22) translate(-270 -250)">
+    <!-- Gear: the machine shop, behind the pepper's shoulder -->
+    <path d="M 472.5,106.5 L 472.5,141.5 L 439.3,133.6 L 426.4,164.8 L 455.5,182.7 L 430.7,207.5 L 412.8,178.4 L 381.6,191.3 L 389.5,224.5 L 354.5,224.5 L 362.4,191.3 L 331.2,178.4 L 313.3,207.5 L 288.5,182.7 L 317.6,164.8 L 304.7,133.6 L 271.5,141.5 L 271.5,106.5 L 304.7,114.4 L 317.6,83.2 L 288.5,65.3 L 313.3,40.5 L 331.2,69.6 L 362.4,56.7 L 354.5,23.5 L 389.5,23.5 L 381.6,56.7 L 412.8,69.6 L 430.7,40.5 L 455.5,65.3 L 426.4,83.2 L 439.3,114.4 Z" fill="#33302B"/>
+
+    <!-- Chili pod: wide shoulder, crescent lean, pointed tip -->
+    <g transform="translate(-14 0)">
+      <path d="M 244 96
+               C 312 100, 354 160, 362 220
+               C 370 282, 358 342, 334 384
+               C 326 408, 300 414, 286 396
+               C 256 336, 222 264, 216 200
+               C 210 144, 222 102, 244 96 Z"
+            fill="#D2493C" stroke="#B23A30" stroke-width="9" stroke-linejoin="round"/>
+      <!-- Glossy highlight along the left edge -->
+      <path d="M 240 134 C 228 182, 230 250, 260 306"
+            stroke="#E8837A" stroke-width="17" stroke-linecap="round" fill="none" opacity="0.9"/>
     </g>
-    <circle cx="64" cy="84" r="6.5" fill="url(#knob)" stroke="#9a6a10" stroke-width="1.5"/>
+    <!-- Glossy highlight along the left edge -->
+    <path d="M 232 132 C 220 180, 222 250, 252 306"
+          stroke="#E8837A" stroke-width="16" stroke-linecap="round" fill="none" opacity="0.9"/>
+    <!-- Stem and leaf -->
+    <path d="M 240 94 C 238 68, 228 52, 212 44" stroke="#4F8A4A" stroke-width="20" stroke-linecap="round" fill="none"/>
+    <path d="M 214 44 C 192 32, 168 38, 158 56 C 174 72, 198 74, 214 62 Z" fill="#4F8A4A"/>
   </g>
 </svg>

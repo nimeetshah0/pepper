@@ -39,8 +39,8 @@ export default function Popup() {
       <header>
         <img src={logo} alt="" />
         <div>
-          <h1>EasyPR</h1>
-          <p>Carries the PR so you can review it.</p>
+          <h1>Pepper</h1>
+          <p>Helps you understand what the machines built</p>
         </div>
       </header>
 

@@ -1,8 +1,8 @@
 {
-  "name": "easypr",
-  "displayName": "EasyPR",
+  "name": "pepper",
+  "displayName": "Pepper",
   "version": "0.1.0",
-  "description": "Adds a categorized view (Core, Tests, Docs, ...) to GitHub's PR file tree.",
+  "description": "Helps you understand what the machines built",
   "scripts": {
     "dev": "plasmo dev",
     "build": "plasmo build",
