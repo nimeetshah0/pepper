@@ -96,9 +96,14 @@ function send<T>(msg: unknown): Promise<T | undefined> {
   );
 }
 
-// MV3 service workers are idle-killed and the first message after an install can be dropped.
-// Without a timeout the panel would sit on "Loading diff…" forever; retry once, then fail visibly.
-function sendDiff(pr: string, tries = 2): Promise<DiffReply | undefined> {
+// MV3 service workers are idle-killed and the first message after an install can be dropped;
+// a fetch killed mid-flight rejects with a network error. Without retries the panel would sit
+// on "Loading diff…" forever or fail permanently. Retry transient failures only — an HTTP
+// status (404, 401, …) is a real answer and retrying it will not change it.
+const TRANSIENT =
+  /failed to fetch|no reply from the background worker|networkerror|load failed/i;
+
+function sendDiff(pr: string, tries = 3): Promise<DiffReply | undefined> {
   return new Promise<DiffReply | undefined>((resolve) => {
     let attempt = 0;
     const go = () => {
@@ -110,7 +115,18 @@ function sendDiff(pr: string, tries = 2): Promise<DiffReply | undefined> {
         );
       });
       Promise.race([send<DiffReply>({ type: "diff", pr }), timeout]).then(
-        resolve,
+        (r) => {
+          clearTimeout(timer);
+          if (
+            r?.text ||
+            ++attempt >= tries ||
+            !TRANSIENT.test(r?.error ?? "")
+          ) {
+            resolve(r);
+            return;
+          }
+          go();
+        },
         (e) => {
           clearTimeout(timer);
           if (++attempt < tries) return go();
