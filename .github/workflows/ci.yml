@@ -21,14 +21,12 @@ permissions:
   contents: read
 
 jobs:
-  # Runs on every pull request and every push to main. This is the job that
-  # branch protection requires before a PR can merge.
+  # The only job that runs on pull requests. This is the check branch protection
+  # requires before a PR can merge; it must never build or publish the artifact.
   gates:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-        with:
-          fetch-depth: 0
 
       - uses: actions/setup-node@v5
         with:
@@ -43,27 +41,11 @@ jobs:
           npm run typecheck
           npm test
 
-      # `plasmo package` only zips an existing build, so the bundle has to be
-      # built first; without it the zip WriteStream fails with ENOENT. Building
-      # on PRs too means a broken bundle is caught before merge.
-      - name: Build and package
-        run: |
-          npm run build
-          npm run package
-
-      - name: Upload extension package
-        if: github.event_name != 'pull_request'
-        uses: actions/upload-artifact@v4
-        with:
-          name: extension-package
-          path: build/*.zip
-          if-no-files-found: error
-
-  # Publishing is deliberately a separate job that never runs on a pull request;
-  # it only runs once changes land on main (or via a manual dispatch). The store
-  # API rejects a package whose version is not greater than the published one,
-  # so publishing is gated on the version actually changing. Bump the version in
-  # package.json to cut a release; anything else still runs the gates.
+  # Builds and (when the version changed) publishes. Guarded so it can only run
+  # once changes land on main, or via a manual dispatch -- never on a PR. The
+  # store API rejects a package whose version is not greater than the published
+  # one, so publishing is gated on the version actually changing. Bump the
+  # version in package.json to cut a release.
   publish:
     needs: gates
     if: github.event_name != 'pull_request'
@@ -77,12 +59,16 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: 24
+          cache: npm
 
-      - name: Download extension package
-        uses: actions/download-artifact@v4
-        with:
-          name: extension-package
-          path: build
+      - run: npm ci
+
+      # `plasmo package` only zips an existing build, so the bundle has to be
+      # built first; without it the zip WriteStream fails with ENOENT.
+      - name: Build and package
+        run: |
+          npm run build
+          npm run package
 
       - name: Detect version change
         id: version
