@@ -4,12 +4,9 @@ import { createRoot, type Root } from "react-dom/client";
 import { flushSync } from "react-dom";
 import cssText from "data-text:./github-pr.css";
 import { Panel, TldrContent, type StoryStep, type TldrState } from "../panel";
-import {
-  CATEGORIES,
-  parseDiff,
-  type CategoryId,
-  type FileChange,
-} from "../categorize";
+import { parseDiff, type FileChange } from "../categorize";
+import { CATEGORIES } from "../rules";
+import type { CategoryId } from "../rules";
 
 export const config: PlasmoCSConfig = {
   matches: ["https://github.com/*"],

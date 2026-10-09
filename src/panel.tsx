@@ -3,7 +3,8 @@
 // the DOM behavior matches the original: groups open/close on their own, redraws happen
 // without losing reviewer state.
 
-import { CATEGORIES, DISPLAY_ORDER, type FileChange } from "./categorize";
+import type { FileChange } from "./categorize";
+import { CATEGORIES, DISPLAY_ORDER } from "./rules";
 
 export interface Tldr {
   tldr: string;
