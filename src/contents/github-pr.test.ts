@@ -645,6 +645,65 @@ test("split view folds comment rows, paired or not", async () => {
   );
 });
 
+// Marking a file viewed collapses it, which moves the next file after we have already scrolled
+// to it. The jump must keep chasing the target until the layout settles instead of stopping at
+// the pre-collapse position (the "Viewed & next lands on the wrong file" bug).
+test("a jump re-asserts while the layout settles", async () => {
+  const t = await loadModule(
+    `<div id="files">
+       <div class="file" id="diff-${sha(P.core)}"></div>
+       <div class="file" id="diff-${sha(P.test)}"></div>
+     </div>`,
+  );
+  const first = change(P.core, "core");
+  const second = change(P.test, "core");
+  t.setCache({ files: [first, second], tldr: null });
+
+  let secondTop = 1000;
+  document.getElementById(second.anchor!)!.getBoundingClientRect = () =>
+    rectAt(secondTop);
+
+  // Run frames by hand so the settle loop is deterministic.
+  const frames: FrameRequestCallback[] = [];
+  const realRaf = globalThis.requestAnimationFrame;
+  globalThis.requestAnimationFrame = (cb: FrameRequestCallback) => {
+    frames.push(cb);
+
+    return frames.length;
+  };
+  const flush = (n: number) => {
+    for (let i = 0; i < n; i++) {
+      for (const cb of frames.splice(0)) {
+        cb(0);
+      }
+    }
+  };
+  try {
+    scrolled = [];
+    t.startStory([first, second]);
+    flush(6);
+    assert.deepStrictEqual(
+      scrolled.map((s) => s.id),
+      [first.anchor],
+      "the first jump scrolls once and then settles",
+    );
+
+    document.body.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "j", bubbles: true }),
+    );
+    // The file above collapses after the first scroll, dragging the target up.
+    secondTop = 200;
+    flush(6);
+    assert.deepStrictEqual(
+      scrolled.map((s) => s.id),
+      [first.anchor, second.anchor, second.anchor],
+      "the second jump follows the target as the layout settles",
+    );
+  } finally {
+    globalThis.requestAnimationFrame = realRaf;
+  }
+});
+
 // GitHub renders its Viewed control only for signed-in users, so the controller keeps its own
 // per-PR record; the live control is authoritative whenever it exists.
 test("viewed state falls back to Pepper's record without a control", async () => {
