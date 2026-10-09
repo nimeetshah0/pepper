@@ -62,12 +62,14 @@ export function Panel({
   note,
   tldr,
   steps,
+  storyCount,
   onStory,
 }: {
   files: FileChange[];
   note: string | null;
   tldr: TldrState;
   steps: StoryStep[];
+  storyCount: number;
   onStory: () => void;
 }) {
   const total = files.reduce((n, f) => n + f.additions + f.deletions, 0) || 1;
@@ -140,9 +142,9 @@ export function Panel({
       <div className="prl-tldr" hidden={tldr === null}>
         <TldrContent tldr={tldr} />
       </div>
-      {steps.length ? (
+      {storyCount ? (
         <button type="button" className="prl-story-start" onClick={onStory}>
-          {`▶ Review story · ${steps.length} files`}
+          {`▶ Review story · ${storyCount} files`}
         </button>
       ) : null}
       {sections}

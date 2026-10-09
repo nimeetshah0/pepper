@@ -194,6 +194,7 @@ export async function renderPanel(
         note={note}
         tldr={cache?.files === files ? cache.tldr : null}
         steps={steps}
+        storyCount={steps.filter((s) => !isViewed(s.f)).length}
         onStory={() => startStory(files)}
       />,
     ),
@@ -438,25 +439,39 @@ export function unfoldAll() {
   }
 }
 
-export function markViewed(f: FileChange) {
-  if (!f.anchor) return;
+// The Viewed toggle differs between the React (a button with aria-pressed) and classic
+// (a checkbox) diff UIs; this finds it in either.
+function viewedControl(f: FileChange): HTMLElement | null {
+  if (!f.anchor) return null;
   const scope = fileScope(f.anchor);
-  const control =
-    scope &&
-    ([...scope.querySelectorAll<HTMLInputElement>("input[type=checkbox]")].find(
+  if (!scope) return null;
+  return (
+    [...scope.querySelectorAll<HTMLInputElement>("input[type=checkbox]")].find(
       (c) =>
         /viewed/i.test(
           c.closest("label")?.textContent || c.getAttribute("aria-label") || "",
         ),
-    ) ||
-      findButton(scope, /^(not )?viewed$/i));
+    ) ??
+    findButton(scope, /^(not )?viewed$/i) ??
+    null
+  );
+}
+
+const controlViewed = (control: HTMLElement) =>
+  control instanceof HTMLInputElement
+    ? control.checked
+    : (control.getAttribute("aria-pressed") ||
+        control.getAttribute("aria-checked")) === "true";
+
+export function isViewed(f: FileChange): boolean {
+  const control = viewedControl(f);
+  return control ? controlViewed(control) : false;
+}
+
+export function markViewed(f: FileChange) {
+  const control = viewedControl(f);
   if (!control) return console.debug("[Pepper] no Viewed control for", f.path);
-  const viewed =
-    control instanceof HTMLInputElement
-      ? control.checked
-      : (control.getAttribute("aria-pressed") ||
-          control.getAttribute("aria-checked")) === "true";
-  if (!viewed) control.click();
+  if (!controlViewed(control)) control.click();
 }
 
 export function storySteps(files: FileChange[]): StoryStep[] {
@@ -481,7 +496,24 @@ export function storySteps(files: FileChange[]): StoryStep[] {
 
 export function startStory(files: FileChange[]) {
   closeStory();
-  story = { steps: storySteps(files), i: 0, card: null };
+  // Files the reviewer already marked viewed aren't worth walking again.
+  const steps = storySteps(files).filter((s) => !isViewed(s.f));
+  story = { steps, i: 0, card: null };
+  if (!steps.length) {
+    showCard(
+      el("p", {
+        className: "prl-story-done",
+        textContent: "🎉 Nothing to review: every core file is already viewed.",
+      }),
+      el("button", {
+        type: "button",
+        textContent: "Close",
+        onclick: closeStory,
+      }),
+    );
+    story.done = true;
+    return;
+  }
   showStep();
 }
 

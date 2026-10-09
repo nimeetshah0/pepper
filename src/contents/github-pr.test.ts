@@ -208,6 +208,17 @@ for (const [name, mk] of VARIANTS) {
         ? c.checked
         : c.getAttribute("aria-pressed") === "true";
     };
+    const setViewed = (p: string, on: boolean) => {
+      const c = document
+        .getElementById(`diff-${sha(p)}`)!
+        .closest<HTMLElement>(".file")!
+        .querySelector<HTMLElement>("[data-viewed]")!;
+      const cur =
+        c instanceof HTMLInputElement
+          ? c.checked
+          : c.getAttribute("aria-pressed") === "true";
+      if (cur !== on) c.click();
+    };
     t.markViewed(files[0]);
     t.markViewed(files[0]);
     assert.strictEqual(
@@ -400,6 +411,33 @@ for (const [name, mk] of VARIANTS) {
         `<div id="diff-${sha(core2.path)}"></div>`,
       );
     t.setCache({ files: [files[0], core2], tldr: null });
+
+    // Already-viewed files are left out of the story.
+    setViewed(P.core, true);
+    t.startStory([files[0], core2]);
+    assert.deepStrictEqual(
+      t.story!.steps.map((s) => s.f.path),
+      [core2.path],
+      `${name}: a viewed file is skipped`,
+    );
+    t.closeStory();
+
+    // With everything viewed there is nothing to review.
+    t.startStory([files[0]]);
+    assert.strictEqual(
+      t.story!.steps.length,
+      0,
+      `${name}: nothing left to review`,
+    );
+    assert.strictEqual(t.story!.done, true, `${name}: the story reports done`);
+    assert.match(
+      t.story!.card!.textContent!,
+      /Nothing to review/,
+      `${name}: the card says so`,
+    );
+    t.closeStory();
+
+    setViewed(P.core, false);
     scrolled = [];
     const historyBefore = history.length;
     t.startStory([files[0], core2]);

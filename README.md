@@ -8,7 +8,8 @@ A Plasmo (React + TypeScript) extension. Adds a categorized view
 (**Core changes, Cosmetic only, Database & migrations, Config/CI, Tests, Docs, AI tooling,
 Generated & lockfiles**) to the GitHub PR file tree, with a "X% of changed lines are core" stat,
 auto-collapsed padding files, folded comment-only hunks, and a keyboard-driven guided
-"review story" that walks the core files and marks them viewed.
+"review story" that walks the core files, skips the ones you have already marked
+viewed, and marks each as you go.
 
 ## Develop
 

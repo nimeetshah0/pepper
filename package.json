@@ -1,7 +1,7 @@
 {
   "name": "pepper",
   "displayName": "Pepper",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Categorized view of GitHub PR files: core, cosmetic, tests, migrations, docs \u2014 with optional AI summaries and guided review order.",
   "scripts": {
     "dev": "plasmo dev",
