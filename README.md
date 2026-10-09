@@ -1,5 +1,7 @@
 # Pepper
 
+[![Chrome Web Store](https://img.shields.io/badge/Chrome_Web_Store-Pepper-1a7f37?logo=googlechrome&logoColor=white)](https://chromewebstore.google.com/detail/pepper/hbgljjmjbhehhgehoffdojjlejeahmhc)
+
 Your companion through long PRs: it carries the review when the diff is 900 lines of AI-written code.
 
 A Plasmo (React + TypeScript) extension. Adds a categorized view
@@ -19,9 +21,10 @@ npm test           # vitest: categorize + content-controller behavior (jsdom)
 npm run typecheck
 ```
 
-Install: `chrome://extensions` → Developer mode → Load unpacked → `build/chrome-mv3-dev`
-(or `-prod` after `npm run build`). To update: rerun the build, then hit reload on the
-Pepper card.
+Install from the [Chrome Web Store](https://chromewebstore.google.com/detail/pepper/hbgljjmjbhehhgehoffdojjlejeahmhc),
+or from source: `chrome://extensions` → Developer mode → Load unpacked →
+`build/chrome-mv3-dev` (or `-prod` after `npm run build`). To update a source build,
+rerun the build, then hit reload on the Pepper card.
 
 Optional keys live in the toolbar popup (pin it from the puzzle-piece menu): TypeSafe
 (Jev reclassifies core/config files) and OpenAI (per-file summaries, PR TL;DR + glossary,
