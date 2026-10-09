@@ -8,16 +8,22 @@ function dataText() {
   return {
     name: "data-text",
     resolveId(source: string, importer?: string) {
-      if (!source.startsWith("data-text:") || !importer) return null;
+      if (!source.startsWith("data-text:") || !importer) {
+        return null;
+      }
       const file = resolve(
         dirname(importer),
         source.slice("data-text:".length),
       );
+
       return `\0data-text:${file}`;
     },
     load(id: string) {
-      if (!id.startsWith("\0data-text:")) return null;
+      if (!id.startsWith("\0data-text:")) {
+        return null;
+      }
       const file = id.slice("\0data-text:".length);
+
       return `export default ${JSON.stringify(readFileSync(file, "utf8"))}`;
     },
   };
