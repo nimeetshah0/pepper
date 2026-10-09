@@ -21,12 +21,13 @@ permissions:
   contents: read
 
 jobs:
+  # Runs on every pull request and every push to main. This is the job that
+  # branch protection requires before a PR can merge.
   gates:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
         with:
-          # The version check diffs against the previous commit on main.
           fetch-depth: 0
 
       - uses: actions/setup-node@v5
@@ -43,19 +44,48 @@ jobs:
           npm test
 
       # `plasmo package` only zips an existing build, so the bundle has to be
-      # built first; without it the zip WriteStream fails with ENOENT.
+      # built first; without it the zip WriteStream fails with ENOENT. Building
+      # on PRs too means a broken bundle is caught before merge.
       - name: Build and package
         run: |
           npm run build
           npm run package
 
-      # The store API rejects a package whose version is not greater than the
-      # published one, so "publish on every push" is impossible by construction:
-      # publishing is gated on the version actually changing. Bump the version in
-      # package.json to cut a release; anything else still runs the gates.
+      - name: Upload extension package
+        if: github.event_name != 'pull_request'
+        uses: actions/upload-artifact@v4
+        with:
+          name: extension-package
+          path: build/*.zip
+          if-no-files-found: error
+
+  # Publishing is deliberately a separate job that never runs on a pull request;
+  # it only runs once changes land on main (or via a manual dispatch). The store
+  # API rejects a package whose version is not greater than the published one,
+  # so publishing is gated on the version actually changing. Bump the version in
+  # package.json to cut a release; anything else still runs the gates.
+  publish:
+    needs: gates
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          # The version check diffs against the previous commit on main.
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+
+      - name: Download extension package
+        uses: actions/download-artifact@v4
+        with:
+          name: extension-package
+          path: build
+
       - name: Detect version change
         id: version
-        if: github.event_name != 'pull_request'
         run: |
           current=$(node -p "require('./package.json').version")
           previous=$(git show HEAD^:package.json 2>/dev/null \
@@ -70,9 +100,8 @@ jobs:
 
       - name: Publish to the Chrome Web Store
         if: >-
-          github.event_name != 'pull_request' &&
-          (steps.version.outputs.changed == 'true' ||
-           (github.event_name == 'workflow_dispatch' && inputs.force_publish))
+          steps.version.outputs.changed == 'true' ||
+          (github.event_name == 'workflow_dispatch' && inputs.force_publish)
         uses: mnao305/chrome-extension-upload@v7.0.0
         with:
           file-path: build/chrome-mv3-prod.zip
