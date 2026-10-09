@@ -1,4 +1,4 @@
-// The categorized panel, ported from the vanilla build's render()/paintTldr() to React.
+// The categorized panel: file groups, summary stat, TL;DR box and story button.
 // The controller (contents/github-pr.ts) re-renders this imperatively via flushSync so
 // the DOM behavior matches the original: groups open/close on their own, redraws happen
 // without losing reviewer state.

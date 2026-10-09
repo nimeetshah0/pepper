@@ -1,6 +1,5 @@
-// Ported from Samwise's background service worker. Same message protocol as the vanilla build;
-// the two LangChain calls are now direct OpenAI Responses API requests (same models, prompts,
-// structured-output schema and cache keys).
+// Service worker: fetches the PR diff, then serves Jev classification and OpenAI
+// summaries/TL;DR over the chrome.runtime message protocol the content script uses.
 
 const PR = /^[\w.-]+\/[\w.-]+\/pull\/\d+$/;
 // Jev's state budget is 32k tokens; ~4 chars/token leaves room for the question.

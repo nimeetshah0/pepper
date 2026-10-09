@@ -1,4 +1,4 @@
-// Ported verbatim from Samwise's categorize.js: this is pure, dependency-free logic.
+// Diff parser + category rules. Pure and dependency-free.
 
 export type CategoryId =
   | "core"

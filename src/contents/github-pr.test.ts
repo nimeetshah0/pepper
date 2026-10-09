@@ -1,5 +1,5 @@
-// Ported from Samwise's content.test.mjs: same fixtures and assertions, with the module
-// imported (and reset per diff-UI variant) instead of eval'd, and React rendering the panel.
+// Behavior tests: the original jsdom fixtures and assertions, with the module imported
+// (and reset per diff-UI variant) instead of eval'd, and React rendering the panel.
 import assert from "node:assert";
 import crypto from "node:crypto";
 import { beforeEach, test, vi } from "vitest";

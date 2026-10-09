@@ -124,9 +124,9 @@ test("shebang is code", () => {
   assert.deepStrictEqual([directives.category, directives.folds], ["core", []]);
 });
 
-// Optional: EASYPR_DIFF=/path/to.diff npm test prints the category breakdown for a real diff.
-if (process.env.EASYPR_DIFF) {
-  const real = parseDiff(fs.readFileSync(process.env.EASYPR_DIFF, "utf8"));
+// Optional: PEPPER_DIFF=/path/to.diff npm test prints the category breakdown for a real diff.
+if (process.env.PEPPER_DIFF) {
+  const real = parseDiff(fs.readFileSync(process.env.PEPPER_DIFF, "utf8"));
   console.log(
     real
       .map(

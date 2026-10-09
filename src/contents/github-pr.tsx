@@ -15,7 +15,7 @@ export const config: PlasmoCSConfig = {
   matches: ["https://github.com/*"],
 };
 
-// The vanilla build shipped this CSS through the manifest; a Plasmo content script injects it.
+// A Plasmo content script owns its own style tag, so the CSS is injected here.
 const style = document.createElement("style");
 style.textContent = cssText;
 (document.head ?? document.documentElement).appendChild(style);
@@ -160,7 +160,7 @@ function el<K extends keyof HTMLElementTagNameMap>(
 }
 
 // One React root per panel element; flushSync keeps the DOM updated the moment the
-// controller's async work (diff fetch, Jev, summaries) resolves, as in the vanilla build.
+// controller's async work (diff fetch, Jev, summaries) resolves.
 const roots = new WeakMap<HTMLElement, Root>();
 
 function rootFor(panel: HTMLElement): Root {
@@ -204,7 +204,7 @@ export async function renderPanel(
   highlightCurrent();
 }
 
-// Test seam mirroring the vanilla paintTldr: renders the TL;DR box content into `box`.
+// Test seam: renders the TL;DR box content into `box`.
 export function paintTldr(box: HTMLElement, t: TldrState) {
   box.hidden = t === null;
   flushSync(() => rootFor(box).render(<TldrContent tldr={t} />));
