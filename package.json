@@ -1,7 +1,7 @@
 {
   "name": "pepper",
   "displayName": "Pepper",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "Helps you understand what the machines built",
   "scripts": {
     "dev": "plasmo dev",
