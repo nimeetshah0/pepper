@@ -114,5 +114,7 @@ for (const file of [
   console.log(
     `${res.status} ${file.path} -> ${verdict} (${Date.now() - started}ms)`,
   );
-  if (!res.ok) console.log(body.slice(0, 300));
+  if (!res.ok) {
+    console.log(body.slice(0, 300));
+  }
 }

@@ -28,6 +28,8 @@ const classicFile = (path: string) =>
 type ContentModule = typeof import("./github-pr");
 
 let onStorage: (c: Record<string, { newValue?: string }>) => void;
+// Backing store for the chrome.storage.local stub, so writes are observable in a test.
+let localStore: Record<string, unknown> = {};
 // Records scrollIntoView calls so story navigation can be asserted.
 let scrolled: Array<{ id: string; options?: ScrollIntoViewOptions }> = [];
 
@@ -43,11 +45,24 @@ async function loadModule(bodyHtml: string): Promise<ContentModule> {
     configurable: true,
   });
   // Object.assign bypasses the global's declared type, so the chrome stub needs no cast.
+  // A key-aware in-memory storage.local, so the per-PR "viewed" record persists within a test.
+  localStore = { defaultView: "tree" };
   Object.assign(globalThis, {
     chrome: {
       runtime: { sendMessage: () => {} },
       storage: {
-        local: { get: async () => ({ defaultView: "tree" }) },
+        local: {
+          get: async (key: string) =>
+            key in localStore ? { [key]: localStore[key] } : {},
+          set: async (items: Record<string, unknown>) => {
+            Object.assign(localStore, items);
+          },
+          remove: async (keys: string | string[]) => {
+            for (const k of Array.isArray(keys) ? keys : [keys]) {
+              delete localStore[k];
+            }
+          },
+        },
         onChanged: {
           addListener: (
             f: (c: Record<string, { newValue?: string }>) => void,
@@ -58,20 +73,24 @@ async function loadModule(bodyHtml: string): Promise<ContentModule> {
       },
     },
   });
-  for (const b of document.querySelectorAll<HTMLElement>("[data-collapse]"))
+  for (const b of document.querySelectorAll<HTMLElement>("[data-collapse]")) {
     b.addEventListener("click", () =>
       b.setAttribute(
         "aria-expanded",
         String(b.getAttribute("aria-expanded") !== "true"),
       ),
     );
-  for (const b of document.querySelectorAll<HTMLElement>("button[data-viewed]"))
+  }
+  for (const b of document.querySelectorAll<HTMLElement>(
+    "button[data-viewed]",
+  )) {
     b.addEventListener("click", () =>
       b.setAttribute(
         "aria-pressed",
         String(b.getAttribute("aria-pressed") !== "true"),
       ),
     );
+  }
   // jsdom implements neither scrollIntoView nor smooth scrolling; record the
   // calls so the story's jump target and options can be asserted.
   scrolled = [];
@@ -87,11 +106,40 @@ async function loadModule(bodyHtml: string): Promise<ContentModule> {
   vi.resetModules();
   const t = await import("./github-pr");
   t.stopPolling();
+
   return t;
 }
 
 beforeEach(() => {
   onStorage = () => {};
+});
+
+// The diff is re-scanned on a timer; there is nothing to find while the tab is hidden, so the
+// timer stops and resyncs on return. Runs first so no earlier import has left a live timer.
+test("polling pauses while the tab is hidden and resumes when it returns", async () => {
+  vi.useFakeTimers();
+  try {
+    const t = await loadModule(`<div id="files"></div>`);
+    let hidden = false;
+    Object.defineProperty(document, "hidden", {
+      configurable: true,
+      get: () => hidden,
+    });
+    assert.strictEqual(
+      vi.getTimerCount(),
+      0,
+      "no poll after the test seam stops it",
+    );
+    hidden = false;
+    document.dispatchEvent(new Event("visibilitychange"));
+    assert.strictEqual(vi.getTimerCount(), 1, "polling resumes on return");
+    hidden = true;
+    document.dispatchEvent(new Event("visibilitychange"));
+    assert.strictEqual(vi.getTimerCount(), 0, "polling pauses while hidden");
+    t.stopPolling();
+  } finally {
+    vi.useRealTimers();
+  }
 });
 
 const VARIANTS: Array<[string, (path: string, index: number) => string]> = [
@@ -204,6 +252,7 @@ for (const [name, mk] of VARIANTS) {
         .getElementById(`diff-${sha(p)}`)!
         .closest<HTMLElement>(".file")!
         .querySelector<HTMLElement>("[data-viewed]")!;
+
       return c instanceof HTMLInputElement
         ? c.checked
         : c.getAttribute("aria-pressed") === "true";
@@ -217,7 +266,9 @@ for (const [name, mk] of VARIANTS) {
         c instanceof HTMLInputElement
           ? c.checked
           : c.getAttribute("aria-pressed") === "true";
-      if (cur !== on) c.click();
+      if (cur !== on) {
+        c.click();
+      }
     };
     t.markViewed(files[0]);
     t.markViewed(files[0]);
@@ -356,9 +407,10 @@ for (const [name, mk] of VARIANTS) {
 
     // Clicking a file pins the highlight to it. Reset the rect stubs above so every anchor
     // reads top=0: the scroll rule then picks the first file, while the pin must override it.
-    for (const p of Object.values(P))
+    for (const p of Object.values(P)) {
       document.getElementById(`diff-${sha(p)}`)!.getBoundingClientRect = () =>
         rectAt(0);
+    }
     t.mount("o/r/pull/1");
     const pinPanel = t.mounted!.root.querySelector<HTMLElement>(".prl-panel")!;
     t.setCache({ files, tldr: null });
@@ -495,3 +547,133 @@ for (const [name, mk] of VARIANTS) {
     assert.strictEqual(t.story, null, `${name}: esc exits`);
   });
 }
+
+// --- Structural file scope, split view, and the viewed fallback -----------------------
+
+const change = (
+  path: string,
+  category: FileChange["category"],
+  extra: Partial<FileChange> = {},
+): FileChange => ({
+  path,
+  patch: "",
+  status: "modified",
+  commentOnly: false,
+  category,
+  additions: 1,
+  deletions: 1,
+  folds: [],
+  anchor: `diff-${sha(path)}`,
+  ...extra,
+});
+
+// The old file scope climbed to the largest ancestor holding a single diff id, which on a page
+// with one rendered file reached past the file into the page chrome. The structural scope must
+// stop at the file.
+test("collapsing a file never fires controls outside it", async () => {
+  const t = await loadModule(
+    `<div id="files">
+       <div class="toolbar"><button id="decoy" aria-label="Collapse file" aria-expanded="true" data-collapse>v</button></div>
+       <div class="file" id="diff-${sha(P.cos)}"><div class="file-header"><button aria-label="Collapse file" aria-expanded="true" data-collapse>v</button></div></div>
+     </div>`,
+  );
+  t.collapsePadding([change(P.cos, "cosmetic")]);
+  assert.strictEqual(
+    document.getElementById("decoy")!.getAttribute("aria-expanded"),
+    "true",
+    "a look-alike control outside the file is left alone",
+  );
+  assert.strictEqual(
+    document
+      .getElementById(`diff-${sha(P.cos)}`)!
+      .querySelector("[data-collapse]")!
+      .getAttribute("aria-expanded"),
+    "false",
+    "the file's own collapse control is used",
+  );
+});
+
+test("controls are found inside a copilot-diff-entry wrapper", async () => {
+  const t = await loadModule(
+    `<div id="files"><copilot-diff-entry>
+       <div class="file-header"><button aria-label="Not Viewed" aria-pressed="false" data-viewed>Viewed</button></div>
+       <div id="diff-${sha(P.core)}"></div>
+     </copilot-diff-entry></div>`,
+  );
+  t.markViewed(change(P.core, "core"));
+  assert.strictEqual(
+    document
+      .querySelector(`#diff-${sha(P.core)}`)!
+      .closest("copilot-diff-entry")!
+      .querySelector("[data-viewed]")!
+      .getAttribute("aria-pressed"),
+    "true",
+    "the Viewed control under the entry was toggled",
+  );
+});
+
+// Split view lays rows out as [old-num, old-code, new-num, new-code]; folding must read the
+// outer cells and must never hide a code line that shares a row with a comment line.
+test("split view folds comment rows, paired or not", async () => {
+  const cell = (n: string | number, code = "") =>
+    `<td data-line-number="${n}"></td><td class="blob-code">${code}</td>`;
+  const t = await loadModule(
+    `<div id="files"><div class="file" id="diff-${sha(P.core)}"><table>
+       <tr><td>Original file line</td><td>code</td><td>Diff line</td><td>code</td></tr>
+       <tr class="js-expandable-line"><td colspan="2">Expand Up</td><td colspan="2">@@ -1 +1 @@</td></tr>
+       <tr>${cell(10, "ctx")}${cell(10, "ctx")}</tr>
+       <tr>${cell(12, "gone-comment")}${cell(11, "comment")}</tr>
+       <tr>${cell(14, "gone-comment")}${cell(13, "code")}</tr>
+       <tr>${cell("", "")}${cell(15, "code")}</tr>
+     </table></div></div>`,
+  );
+  t.foldPadding([
+    change(P.core, "core", {
+      commentOnly: true,
+      folds: [{ old: [12, 14], new: [11] }],
+    }),
+  ]);
+  const hidden = [
+    ...document.querySelectorAll<HTMLTableRowElement>(
+      `#diff-${sha(P.core)} table tr`,
+    ),
+  ].map((tr) => tr.style.display === "none");
+  assert.deepStrictEqual(
+    hidden,
+    [false, false, false, true, false, false],
+    "only rows whose changed sides are all comment lines fold",
+  );
+});
+
+// GitHub renders its Viewed control only for signed-in users, so the controller keeps its own
+// per-PR record; the live control is authoritative whenever it exists.
+test("viewed state falls back to Pepper's record without a control", async () => {
+  const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+  const t = await loadModule(
+    `<div id="files"><div id="diff-${sha(P.core)}"></div></div>`,
+  );
+  await t.loadViewed("o/r/pull/9");
+  const f = change(P.core, "core");
+  assert.strictEqual(t.isViewed(f), false, "not viewed yet");
+  t.markViewed(f);
+  assert.strictEqual(t.isViewed(f), true, "Pepper remembers it in memory");
+  assert.deepStrictEqual(
+    localStore["viewed:o/r/pull/9"],
+    [P.core],
+    "and writes it per PR",
+  );
+  assert.ok(
+    warn.mock.calls.some((c) => String(c[0]).includes("Viewed control")),
+    "and warns that it is guessing",
+  );
+
+  // Once GitHub renders a control, it is authoritative.
+  document.getElementById(`diff-${sha(P.core)}`)!.innerHTML =
+    `<button aria-label="Not Viewed" aria-pressed="false" data-viewed>Viewed</button>`;
+  assert.strictEqual(
+    t.isViewed(f),
+    false,
+    "the live control overrides the record",
+  );
+  warn.mockRestore();
+});

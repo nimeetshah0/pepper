@@ -142,7 +142,8 @@ button {
 button:hover {
   filter: brightness(1.08);
 }
-#status {
+#status,
+#cache-status {
   color: var(--accent);
   font-size: 12px;
 }

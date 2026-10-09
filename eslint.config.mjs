@@ -39,6 +39,14 @@ export default tseslint.config(
         "error",
         { argsIgnorePattern: "^_", varsIgnorePattern: "^_" },
       ],
+      // Every control statement gets braces; Prettier keeps the opening brace on the same
+      // line as the statement and the closing brace on its own line.
+      curly: ["error", "all"],
+      // A blank line before return separates the result from how it was computed.
+      "padding-line-between-statements": [
+        "error",
+        { blankLine: "always", prev: "*", next: "return" },
+      ],
     },
   },
   {
