@@ -28,16 +28,6 @@ Optional keys live in the toolbar popup (pin it from the puzzle-piece menu): Typ
 reading order; cached by prompt + diff). Without keys the extension is a fully local,
 deterministic categorizer.
 
-## Description
-
-**Tagline** (popup header): _"Helps you understand what the machines built"_.
-
-The Chrome Web Store pulls its Summary from the zip's manifest description
-(`package.json` → `manifest.description`, capped at 132 chars), so that field carries the
-functional summary instead:
-
-> Categorized view of GitHub PR files: core, cosmetic, tests, migrations, docs — with optional AI summaries and guided review order.
-
 ## Layout
 
 ```
