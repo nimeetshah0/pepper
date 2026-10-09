@@ -44,8 +44,12 @@ jobs:
           npm run typecheck
           npm test
 
+      # `plasmo package` only zips an existing build, so the bundle has to be
+      # built first; without it the zip WriteStream fails with ENOENT.
       - name: Build and package
-        run: npx plasmo package
+        run: |
+          npm run build
+          npm run package
 
       # The store API rejects a package whose version is not greater than the
       # published one, so "publish on every push" is impossible by construction:
