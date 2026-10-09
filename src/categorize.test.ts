@@ -24,8 +24,9 @@ const cases = {
 };
 
 test("categorize", () => {
-  for (const [path, want] of Object.entries(cases))
+  for (const [path, want] of Object.entries(cases)) {
     assert.strictEqual(categorize(path), want, path);
+  }
 });
 
 const diff = `diff --git a/lib/a.ex b/lib/a.ex

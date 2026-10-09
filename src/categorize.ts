@@ -62,8 +62,9 @@ export function parseDiff(text: string): FileChange[] {
         inDoc = false,
         run: Fold | null = null;
       const endRun = () => {
-        if (run && run.old.length + run.new.length >= FOLD_MIN)
+        if (run && run.old.length + run.new.length >= FOLD_MIN) {
           file.folds.push(run);
+        }
         run = null;
       };
       for (const line of lines.slice(1)) {
@@ -77,14 +78,18 @@ export function parseDiff(text: string): FileChange[] {
           continue;
         }
         if (!inHunk) {
-          if (line.startsWith("new file mode")) file.status = "added";
-          else if (line.startsWith("deleted file mode"))
+          if (line.startsWith("new file mode")) {
+            file.status = "added";
+          } else if (line.startsWith("deleted file mode")) {
             file.status = "removed";
-          else if (line.startsWith("rename to ")) {
+          } else if (line.startsWith("rename to ")) {
             file.status = "renamed";
             file.path = line.slice(10);
-          } else if (line.startsWith("+++ b/")) file.path = line.slice(6);
-          else if (line.startsWith("Binary files")) file.status = "binary";
+          } else if (line.startsWith("+++ b/")) {
+            file.path = line.slice(6);
+          } else if (line.startsWith("Binary files")) {
+            file.status = "binary";
+          }
           continue;
         }
         const sign = line[0];
@@ -93,31 +98,46 @@ export function parseDiff(text: string): FileChange[] {
         if (DOC_OPEN.test(body)) {
           inDoc = true;
           isDoc = true;
-        } else if (inDoc && DOC_CLOSE.test(body)) inDoc = false;
+        } else if (inDoc && DOC_CLOSE.test(body)) {
+          inDoc = false;
+        }
         if (sign === " ") {
           endRun();
           oldN++;
           newN++;
           continue;
         }
-        if (sign !== "+" && sign !== "-") continue;
-        if (sign === "+") file.additions++;
-        else file.deletions++;
+        if (sign !== "+" && sign !== "-") {
+          continue;
+        }
+        if (sign === "+") {
+          file.additions++;
+        } else {
+          file.deletions++;
+        }
         if (!isDoc) {
           file.commentOnly = false;
           endRun();
-        } else
+        } else {
           (run ??= { old: [], new: [] })[sign === "+" ? "new" : "old"].push(
             sign === "+" ? newN : oldN,
           );
-        if (sign === "+") newN++;
-        else oldN++;
+        }
+        if (sign === "+") {
+          newN++;
+        } else {
+          oldN++;
+        }
       }
       endRun();
-      if (file.additions + file.deletions === 0) file.commentOnly = false;
+      if (file.additions + file.deletions === 0) {
+        file.commentOnly = false;
+      }
       file.category = categorize(file.path);
-      if (file.category === "core" && file.commentOnly)
+      if (file.category === "core" && file.commentOnly) {
         file.category = "cosmetic";
+      }
+
       return file;
     });
 }

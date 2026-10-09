@@ -31,7 +31,6 @@ const SUMMARY_CONCURRENCY = 6;
 const PADDING = new Set<CategoryId>(["cosmetic", "generated", "ai"]);
 // Story mode walks only these categories, in this order when the TL;DR gives none.
 const STORY_ORDER: CategoryId[] = ["core"];
-const FILE_ID = /^diff-[0-9a-f]{64}$/;
 
 interface Mounted {
   pr: string;
@@ -66,7 +65,9 @@ chrome.storage?.local.get("defaultView").then((s) => {
   mounted?.apply(showing());
 });
 chrome.storage?.onChanged.addListener((c) => {
-  if (!c.defaultView) return;
+  if (!c.defaultView) {
+    return;
+  }
   defaultOn = c.defaultView.newValue !== "tree";
   override = null;
   mounted?.apply(showing());
@@ -120,13 +121,16 @@ function sendDiff(pr: string, tries = 3): Promise<DiffReply | undefined> {
             !TRANSIENT.test(r?.error ?? "")
           ) {
             resolve(r);
+
             return;
           }
           go();
         },
         (e) => {
           clearTimeout(timer);
-          if (++attempt < tries) return go();
+          if (++attempt < tries) {
+            return go();
+          }
           resolve({ error: String(e.message || e) });
         },
       );
@@ -140,6 +144,7 @@ async function sha256(text: string): Promise<string> {
     "SHA-256",
     new TextEncoder().encode(text),
   );
+
   return [...new Uint8Array(buf)]
     .map((b) => b.toString(16).padStart(2, "0"))
     .join("");
@@ -153,6 +158,7 @@ function el<K extends keyof HTMLElementTagNameMap>(
   const node = document.createElement(tag);
   Object.assign(node, props);
   node.append(...children.filter((c): c is Node | string => c != null));
+
   return node;
 }
 
@@ -166,6 +172,7 @@ function rootFor(panel: HTMLElement): Root {
     root = createRoot(panel);
     roots.set(panel, root);
   }
+
   return root;
 }
 
@@ -206,6 +213,7 @@ export async function renderPanel(
 export function paintTldr(box: HTMLElement, t: TldrState) {
   box.hidden = t === null;
   flushSync(() => rootFor(box).render(<TldrContent tldr={t} />));
+
   return box;
 }
 
@@ -215,11 +223,15 @@ export function setCache(c: Partial<Cache> | null) {
 }
 
 export async function load(pr: string, panel: HTMLElement) {
-  if (cache?.pr === pr) return renderPanel(panel, cache.files, cache.note);
+  if (cache?.pr === pr) {
+    return renderPanel(panel, cache.files, cache.note);
+  }
+  await loadViewed(pr);
   panel.textContent = "Loading diff…";
   const diff = await sendDiff(pr);
   if (!diff?.text) {
     panel.textContent = `Pepper couldn't load the diff (${diff?.error}).`;
+
     return;
   }
   const files = parseDiff(diff.text);
@@ -232,18 +244,21 @@ export async function load(pr: string, panel: HTMLElement) {
   await renderPanel(panel, files, "Classifying with Jev…");
 
   const ambiguous = files.filter((f) => JEV_SCOPE.has(f.category));
-  if (!ambiguous.length) return finish(pr, panel, files, null);
+  if (!ambiguous.length) {
+    return finish(pr, panel, files, null);
+  }
   const jev = await send<ClassifyReply>({
     type: "classify",
     files: ambiguous.map(({ path, patch }) => ({ path, patch })),
   });
-  if (jev?.error === "no key")
+  if (jev?.error === "no key") {
     return finish(
       pr,
       panel,
       files,
       "Path heuristics only. Add a TypeSafe key in the Pepper toolbar popup to classify with Jev.",
     );
+  }
   for (const r of jev?.results || []) {
     const f = files.find((x) => x.path === r.path);
     const category = parseCategory(r.category);
@@ -270,6 +285,7 @@ async function prDescription(): Promise<string> {
     const body = new DOMParser()
       .parseFromString(html, "text/html")
       .querySelector('[id^="pullrequest-"] .js-comment-body');
+
     return (body?.textContent?.trim() || "").slice(0, 10000);
   } catch {
     return "";
@@ -289,23 +305,31 @@ async function loadTldr(files: FileChange[]) {
     body: await prDescription(),
     diff,
   });
-  if (cache?.files !== files) return;
+  if (cache?.files !== files) {
+    return;
+  }
   cache.tldr = r?.error === "no key" ? null : r;
   // Redraw rather than paint in place: the story's reading order reorders the Core list.
   const panel = mounted?.root.querySelector<HTMLElement>(".prl-panel");
-  if (panel) await renderPanel(panel, files, cache.note);
+  if (panel) {
+    await renderPanel(panel, files, cache.note);
+  }
 }
 
 // Summaries fill in as they resolve; one coalesced redraw per frame instead of a render
 // per file (React keeps the groups the reviewer opened across redraws).
 let redrawQueued = false;
 function scheduleRedraw(files: FileChange[]) {
-  if (redrawQueued || cache?.files !== files) return;
+  if (redrawQueued || cache?.files !== files) {
+    return;
+  }
   redrawQueued = true;
   requestAnimationFrame(() => {
     redrawQueued = false;
     const panel = mounted?.root.querySelector<HTMLElement>(".prl-panel");
-    if (panel && cache?.files === files) renderPanel(panel, files, cache.note);
+    if (panel && cache?.files === files) {
+      renderPanel(panel, files, cache.note);
+    }
   });
 }
 
@@ -322,6 +346,7 @@ async function summarizeAll(files: FileChange[]) {
         });
         if (r?.error === "no key") {
           stop = true;
+
           return;
         }
         f.summary =
@@ -333,24 +358,27 @@ async function summarizeAll(files: FileChange[]) {
   );
 }
 
-// The diff-<sha256(path)> id marks one file; climb to the largest ancestor that still holds only
-// that file, which contains its header controls in both the classic and React diff UIs.
+// GitHub's diff UIs wrap each file differently: the classic and React UIs use a `.file`
+// element (which may itself carry the diff-<sha256(path)> id), and the newer UI wraps each
+// file in a <copilot-diff-entry>. Resolve the container structurally. The old approach climbed
+// to the largest ancestor holding only this file's id, which over-reaches when GitHub has
+// rendered just one file (it can climb to the whole page layout).
+const FILE_SCOPE_SELECTOR = [
+  '[data-details-container-group="file"]',
+  "copilot-diff-entry",
+  "div.file.js-file",
+  ".file",
+].join(", ");
+
 function fileScope(anchor: string): Element | null {
-  let node: Element | null = document.getElementById(anchor);
-  const fileCount = (n: Element) =>
-    [...n.querySelectorAll('[id^="diff-"]')].filter((x) => FILE_ID.test(x.id))
-      .length;
-  while (
-    node?.parentElement &&
-    node.parentElement !== document.body &&
-    fileCount(node.parentElement) <= 1
-  )
-    node = node.parentElement;
-  return node;
+  const node = document.getElementById(anchor);
+
+  return node ? (node.closest(FILE_SCOPE_SELECTOR) ?? node) : null;
 }
 
 function accessibleName(node: Element): string {
   const ids = node.getAttribute("aria-labelledby");
+
   return (
     node.getAttribute("aria-label") ||
     (ids &&
@@ -369,17 +397,22 @@ const findButton = (scope: Element, re: RegExp) =>
 // GitHub renders diffs lazily, so this runs on every tick and catches files as they appear.
 export function collapsePadding(files: FileChange[]) {
   for (const f of files) {
-    if (!PADDING.has(f.category) || !f.anchor || collapsed.has(f.anchor))
+    if (!PADDING.has(f.category) || !f.anchor || collapsed.has(f.anchor)) {
       continue;
+    }
     const scope = fileScope(f.anchor);
-    if (!scope) continue;
+    if (!scope) {
+      continue;
+    }
     collapsed.add(f.anchor);
     const button = findButton(scope, /^(collapse file|toggle diff contents)$/i);
     if (!button) {
       console.debug("[Pepper] no collapse control for", f.path);
       continue;
     }
-    if (button.getAttribute("aria-expanded") !== "false") button.click();
+    if (button.getAttribute("aria-expanded") !== "false") {
+      button.click();
+    }
   }
 }
 
@@ -391,19 +424,29 @@ const foldCount = (f: FileChange) =>
 // Diff rows carry old/new line numbers in their first two cells: as text in the React UI,
 // as data-line-number in the classic one. Split view doesn't match this shape and is left alone.
 function numberedRow(tr: HTMLTableRowElement) {
-  const [a, b] = tr.cells;
-  if (!a || !b) return null;
+  const cells = tr.cells;
+  // Split view lays a row out as [old-num, old-code, new-num, new-code]; unified as
+  // [old-num, new-num, code]. Header and expand rows (2 cells) fall through as null.
+  const a = cells[0];
+  const b = cells.length >= 4 ? cells[2] : cells[1];
+  if (!a || !b) {
+    return null;
+  }
   const num = (c: HTMLTableCellElement) => {
     const t = (
       c.getAttribute("data-line-number") ??
       c.textContent ??
       ""
     ).trim();
+
     return t === "" ? 0 : /^\d+$/.test(t) ? Number(t) : NaN;
   };
   const oldN = num(a),
     newN = num(b);
-  if (Number.isNaN(oldN) || Number.isNaN(newN) || (!oldN && !newN)) return null;
+  if (Number.isNaN(oldN) || Number.isNaN(newN) || (!oldN && !newN)) {
+    return null;
+  }
+
   return { tr, oldN, newN };
 }
 
@@ -411,17 +454,26 @@ function numberedRow(tr: HTMLTableRowElement) {
 // Switching to the native file tree runs unfoldAll, which is how a reviewer sees the folded lines.
 export function foldPadding(files: FileChange[]) {
   for (const f of files) {
-    if (!foldCount(f) || !f.anchor) continue;
+    if (!foldCount(f) || !f.anchor) {
+      continue;
+    }
     const scope = fileScope(f.anchor);
-    if (!scope) continue;
+    if (!scope) {
+      continue;
+    }
     const oldSet = new Set(f.folds.flatMap((r) => r.old));
     const newSet = new Set(f.folds.flatMap((r) => r.new));
     for (const tr of scope.querySelectorAll<HTMLTableRowElement>("tr")) {
       const row = numberedRow(tr);
-      if (!row) continue;
+      if (!row) {
+        continue;
+      }
       const folded =
         (row.oldN && !row.newN && oldSet.has(row.oldN)) ||
-        (row.newN && !row.oldN && newSet.has(row.newN));
+        (row.newN && !row.oldN && newSet.has(row.newN)) ||
+        // Split view pairs a removed line with an added one on the same row; fold only
+        // when both sides are comment/doc lines, so a packed code counterpart is kept.
+        (row.oldN && row.newN && oldSet.has(row.oldN) && newSet.has(row.newN));
       if (folded) {
         tr.style.display = "none";
         tr.dataset.pepperFolded = "";
@@ -442,9 +494,14 @@ export function unfoldAll() {
 // The Viewed toggle differs between the React (a button with aria-pressed) and classic
 // (a checkbox) diff UIs; this finds it in either.
 function viewedControl(f: FileChange): HTMLElement | null {
-  if (!f.anchor) return null;
+  if (!f.anchor) {
+    return null;
+  }
   const scope = fileScope(f.anchor);
-  if (!scope) return null;
+  if (!scope) {
+    return null;
+  }
+
   return (
     [...scope.querySelectorAll<HTMLInputElement>("input[type=checkbox]")].find(
       (c) =>
@@ -463,15 +520,64 @@ const controlViewed = (control: HTMLElement) =>
     : (control.getAttribute("aria-pressed") ||
         control.getAttribute("aria-checked")) === "true";
 
+// GitHub renders its per-file Viewed control only for signed-in users, and some diff UIs
+// omit it entirely, so the DOM alone can't be trusted. Pepper keeps its own record per PR
+// so skip-viewed still works when the control is missing, and remembers progress across
+// reloads. The live control wins whenever it is present.
+let viewedFallback = new Set<string>();
+let viewedPr = "";
+let warnedNoControl = false;
+
+// Test seam: the controller calls this from load(); tests may seed the per-PR record.
+export async function loadViewed(pr: string) {
+  viewedPr = pr;
+  warnedNoControl = false;
+  const key = `viewed:${pr}`;
+  let list: unknown;
+  try {
+    list = (await chrome.storage?.local?.get(key))?.[key];
+  } catch {
+    list = undefined;
+  }
+  viewedFallback = new Set(
+    Array.isArray(list)
+      ? list.filter((p): p is string => typeof p === "string")
+      : [],
+  );
+}
+
+function rememberViewed(path: string) {
+  if (viewedFallback.has(path)) {
+    return;
+  }
+  viewedFallback.add(path);
+  try {
+    void chrome.storage?.local?.set?.({
+      [`viewed:${viewedPr}`]: [...viewedFallback].slice(-2000),
+    });
+  } catch {
+    // No storage this session is fine; the in-memory set still covers it.
+  }
+}
+
 export function isViewed(f: FileChange): boolean {
   const control = viewedControl(f);
-  return control ? controlViewed(control) : false;
+
+  return control ? controlViewed(control) : viewedFallback.has(f.path);
 }
 
 export function markViewed(f: FileChange) {
   const control = viewedControl(f);
-  if (!control) return console.debug("[Pepper] no Viewed control for", f.path);
-  if (!controlViewed(control)) control.click();
+  if (!control && !warnedNoControl) {
+    warnedNoControl = true;
+    console.warn(
+      "[Pepper] GitHub's Viewed control wasn't found; Pepper will track viewed files itself for this PR.",
+    );
+  }
+  if (control && !controlViewed(control)) {
+    control.click();
+  }
+  rememberViewed(f.path);
 }
 
 export function storySteps(files: FileChange[]): StoryStep[] {
@@ -488,9 +594,11 @@ export function storySteps(files: FileChange[]): StoryStep[] {
   for (const cat of STORY_ORDER) {
     for (const f of files
       .filter((x) => x.category === cat && !seen.has(x))
-      .sort((a, b) => a.path.localeCompare(b.path)))
+      .sort((a, b) => a.path.localeCompare(b.path))) {
       steps.push({ f, why: null });
+    }
   }
+
   return steps;
 }
 
@@ -512,6 +620,7 @@ export function startStory(files: FileChange[]) {
       }),
     );
     story.done = true;
+
     return;
   }
   showStep();
@@ -529,10 +638,13 @@ export function closeStory() {
 // directly instead, and keep the URL in step without the scroll side effect or a
 // history entry per step.
 function goTo(anchor: string) {
-  if (location.hash !== `#${anchor}`)
+  if (location.hash !== `#${anchor}`) {
     history.replaceState(history.state, "", `#${anchor}`);
+  }
   const f = fileByAnchor(anchor);
-  if (f) pinFile(f.path);
+  if (f) {
+    pinFile(f.path);
+  }
   scrollToAnchor(anchor);
 }
 
@@ -541,14 +653,18 @@ function goTo(anchor: string) {
 // layout just after we scroll, which would otherwise leave the file off-position.
 function scrollToAnchor(anchor: string) {
   const node = document.getElementById(anchor);
-  if (!node) return;
+  if (!node) {
+    return;
+  }
   const place = () =>
     node.scrollIntoView({ block: "start", behavior: "instant" });
   place();
   requestAnimationFrame(() => {
     const top = node.getBoundingClientRect().top;
     requestAnimationFrame(() => {
-      if (Math.abs(node.getBoundingClientRect().top - top) > 4) place();
+      if (Math.abs(node.getBoundingClientRect().top - top) > 4) {
+        place();
+      }
     });
   });
 }
@@ -561,7 +677,9 @@ function showCard(...children: Array<Node | string | null>) {
 }
 
 function showStep() {
-  if (!story) return;
+  if (!story) {
+    return;
+  }
   const { steps, i } = story;
   const { f, why } = steps[i];
   goTo(f.anchor!);
@@ -616,18 +734,26 @@ function showStep() {
 }
 
 function move(delta: number) {
-  if (!story) return;
+  if (!story) {
+    return;
+  }
   const i = story.i + delta;
-  if (i < 0 || i >= story.steps.length) return;
+  if (i < 0 || i >= story.steps.length) {
+    return;
+  }
   story.i = i;
   showStep();
 }
 
 function viewedAndNext() {
-  if (!story) return;
+  if (!story) {
+    return;
+  }
   const { steps, i } = story;
   markViewed(steps[i].f);
-  if (i < steps.length - 1) return move(1);
+  if (i < steps.length - 1) {
+    return move(1);
+  }
   showCard(
     el("p", {
       className: "prl-story-done",
@@ -642,14 +768,17 @@ function viewedAndNext() {
 document.addEventListener(
   "keydown",
   (e) => {
-    if (!story || e.metaKey || e.ctrlKey || e.altKey) return;
+    if (!story || e.metaKey || e.ctrlKey || e.altKey) {
+      return;
+    }
     if (
       e.target instanceof Element &&
       e.target.closest(
         "input, textarea, select, [contenteditable]:not([contenteditable='false'])",
       )
-    )
+    ) {
       return;
+    }
     const action = story.done
       ? { Escape: closeStory }[e.key]
       : {
@@ -658,7 +787,9 @@ document.addEventListener(
           v: viewedAndNext,
           Escape: closeStory,
         }[e.key];
-    if (!action) return;
+    if (!action) {
+      return;
+    }
     e.preventDefault();
     e.stopPropagation();
     action();
@@ -678,14 +809,19 @@ export async function finish(
     mounted && mounted.pr === pr
       ? mounted.root.querySelector<HTMLElement>(".prl-panel")
       : panel;
+
   return target ? renderPanel(target, files, note) : undefined;
 }
 
 export function mount(pr: string) {
   if (mounted) {
     const old = mounted.root.querySelector<HTMLElement>(".prl-panel");
-    if (old) roots.get(old)?.unmount();
-    if (mounted.tree) mounted.tree.style.display = "";
+    if (old) {
+      roots.get(old)?.unmount();
+    }
+    if (mounted.tree) {
+      mounted.tree.style.display = "";
+    }
     mounted.root.remove();
   }
   const tree =
@@ -705,16 +841,23 @@ export function mount(pr: string) {
     toggle.textContent = on ? "Show file tree" : "Show categorized view";
     toggle.setAttribute("aria-pressed", String(on));
     panel.hidden = !on;
-    if (tree) tree.style.display = on ? "none" : "";
-    if (!on) unfoldAll();
+    if (tree) {
+      tree.style.display = on ? "none" : "";
+    }
+    if (!on) {
+      unfoldAll();
+    }
   };
   toggle.onclick = () => {
     override = panel.hidden;
     apply(override);
   };
 
-  if (tree) tree.before(root);
-  else document.body.append(root);
+  if (tree) {
+    tree.before(root);
+  } else {
+    document.body.append(root);
+  }
   mounted = { pr, root, tree, apply };
   apply(showing());
   load(pr, panel).catch((e) => {
@@ -737,16 +880,20 @@ export function currentFile(files: FileChange[]): FileChange | null {
       bestTop = top;
     }
   }
+
   return best;
 }
 
 function highlightCurrent() {
-  if (!mounted || !cache?.files) return;
+  if (!mounted || !cache?.files) {
+    return;
+  }
   const path = pinnedPath ?? currentFile(cache.files)?.path;
   for (const li of mounted.root.querySelectorAll<HTMLLIElement>(
     ".prl-group li",
-  ))
+  )) {
     li.classList.toggle("prl-current", li.dataset.path === path);
+  }
 }
 
 let highlightQueued = false;
@@ -754,7 +901,9 @@ let highlightQueued = false;
 document.addEventListener(
   "scroll",
   () => {
-    if (highlightQueued) return;
+    if (highlightQueued) {
+      return;
+    }
     highlightQueued = true;
     requestAnimationFrame(() => {
       highlightQueued = false;
@@ -795,12 +944,15 @@ const RELEASE_KEYS = new Set([
 window.addEventListener("wheel", releasePin, { passive: true });
 window.addEventListener("touchmove", releasePin, { passive: true });
 document.addEventListener("keydown", (e) => {
-  if (RELEASE_KEYS.has(e.key)) releasePin();
+  if (RELEASE_KEYS.has(e.key)) {
+    releasePin();
+  }
 });
 // Mousedown on the document/body (not on page content) is how a scrollbar drag starts.
 document.addEventListener("mousedown", (e) => {
-  if (e.target === document.documentElement || e.target === document.body)
+  if (e.target === document.documentElement || e.target === document.body) {
     releasePin();
+  }
 });
 
 // Jev returns the category as a plain string; only accept ids we know.
@@ -816,32 +968,41 @@ document.addEventListener("click", (e) => {
       ? e.target.closest<HTMLAnchorElement>('a[href^="#diff-"]')
       : null;
   const f = a && fileByAnchor(a.hash.slice(1));
-  if (!f || !a) return;
+  if (!f || !a) {
+    return;
+  }
   // Pepper's own links drive the reliable jump; GitHub's file-tree links keep their
   // own navigation, and we only sync the highlight for those.
   if (a.closest(".prl-root")) {
     e.preventDefault();
     goTo(f.anchor!);
-  } else pinFile(f.path);
+  } else {
+    pinFile(f.path);
+  }
 });
 
 // Back/forward, or a hash pasted into the URL bar.
 window.addEventListener("hashchange", () => {
   const f = fileByAnchor(location.hash.slice(1));
-  if (f) pinFile(f.path);
+  if (f) {
+    pinFile(f.path);
+  }
 });
 
 // GitHub navigates client-side, so poll the URL rather than relying on page loads.
-const pollTimer = setInterval(() => {
+function pollTick() {
   const pr = location.pathname.match(PR_PATH)?.[1];
   if (!pr) {
     if (mounted) {
-      if (mounted.tree) mounted.tree.style.display = "";
+      if (mounted.tree) {
+        mounted.tree.style.display = "";
+      }
       mounted.root.remove();
       mounted = null;
       closeStory();
       pinnedPath = null;
     }
+
     return;
   }
   const treeNow =
@@ -853,15 +1014,42 @@ const pollTimer = setInterval(() => {
     mounted.pr !== pr ||
     !mounted.root.isConnected ||
     (treeNow && treeNow !== mounted.tree)
-  )
+  ) {
     mount(pr);
+  }
   if (cache && cache.pr === pr && showing()) {
     collapsePadding(cache.files);
     foldPadding(cache.files);
-  } else unfoldAll();
-}, 1000);
+  } else {
+    unfoldAll();
+  }
+}
+
+let pollTimer: ReturnType<typeof setInterval> | null = null;
+function resumePolling() {
+  if (pollTimer == null) {
+    pollTimer = setInterval(pollTick, 1000);
+  }
+}
+function pausePolling() {
+  if (pollTimer != null) {
+    clearInterval(pollTimer);
+    pollTimer = null;
+  }
+}
+// No point re-scanning a diff the reviewer can't see; resync once on return so a
+// client-side navigation that happened while hidden is picked up immediately.
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) {
+    pausePolling();
+  } else {
+    pollTick();
+    resumePolling();
+  }
+});
+resumePolling();
 
 // Test seam: stops the mount/poll loop so jsdom tests control mounting themselves.
 export function stopPolling() {
-  clearInterval(pollTimer);
+  pausePolling();
 }

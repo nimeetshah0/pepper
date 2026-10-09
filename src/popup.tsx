@@ -14,6 +14,7 @@ export default function Popup() {
   const [view, setView] = useState<"categorized" | "tree">("categorized");
   const [keys, setKeys] = useState({ typesafeKey: "", openaiKey: "" });
   const [saved, setSaved] = useState("");
+  const [cacheSaved, setCacheSaved] = useState("");
 
   useEffect(() => {
     chrome.storage.local
@@ -32,6 +33,19 @@ export default function Popup() {
       Object.fromEntries(KEYS.map((k) => [k, (keys[k] || "").trim()])),
     );
     setSaved("Saved ✓");
+  };
+
+  const clearCache = async () => {
+    const all = await chrome.storage.local.get(null);
+    const keys = Object.keys(all).filter((k) => /^(sum|tldr):/.test(k));
+    if (keys.length) {
+      await chrome.storage.local.remove(keys);
+    }
+    setCacheSaved(
+      keys.length
+        ? `Cleared ${keys.length} item${keys.length === 1 ? "" : "s"}`
+        : "Nothing cached",
+    );
   };
 
   return (
@@ -109,6 +123,21 @@ export default function Popup() {
             Save keys
           </button>
           <span id="status">{saved}</span>
+        </div>
+      </section>
+
+      <section>
+        <h2>Cache</h2>
+        <p className="note">
+          Summaries and TL;DRs are cached locally, so re-reading a PR after a
+          push is free. Pepper keeps this bounded and drops the oldest entries
+          first.
+        </p>
+        <div className="row">
+          <button id="clear-cache" onClick={clearCache}>
+            Clear cache
+          </button>
+          <span id="cache-status">{cacheSaved}</span>
         </div>
       </section>
     </>

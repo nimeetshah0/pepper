@@ -30,12 +30,18 @@ export function withCode(text: string) {
 }
 
 export function TldrContent({ tldr }: { tldr: TldrState }) {
-  if (tldr === undefined) return <p className="prl-note">Writing TL;DR…</p>;
-  if (!tldr) return null;
-  if (tldr.error)
+  if (tldr === undefined) {
+    return <p className="prl-note">Writing TL;DR…</p>;
+  }
+  if (!tldr) {
+    return null;
+  }
+  if (tldr.error) {
     return (
       <p className="prl-note">{`TL;DR unavailable (${String(tldr.error).slice(0, 160)}).`}</p>
     );
+  }
+
   return (
     <>
       <p className="prl-tldr-text">
@@ -86,10 +92,13 @@ export function Panel({
           (rank.get(a.path) ?? Infinity) - (rank.get(b.path) ?? Infinity) ||
           a.path.localeCompare(b.path),
       );
-    if (!group.length) return null;
+    if (!group.length) {
+      return null;
+    }
     const cat = CATEGORIES.find((c) => c.id === id)!;
     const add = group.reduce((n, f) => n + f.additions, 0);
     const del = group.reduce((n, f) => n + f.deletions, 0);
+
     return (
       <details className="prl-group" data-category={id} key={id}>
         <summary>
@@ -102,6 +111,7 @@ export function Panel({
         <ul>
           {group.map((f) => {
             const slash = f.path.lastIndexOf("/");
+
             return (
               <li key={f.path} data-path={f.path}>
                 <div className="prl-row">

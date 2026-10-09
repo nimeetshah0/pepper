@@ -17,6 +17,7 @@ async function sha256(text: string): Promise<string> {
     "SHA-256",
     new TextEncoder().encode(text),
   );
+
   return [...new Uint8Array(buf)]
     .map((b) => b.toString(16).padStart(2, "0"))
     .join("");
@@ -29,11 +30,16 @@ interface CallOpts {
   schema?: Record<string, unknown>;
 }
 
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+const RETRYABLE = (status: number) => status === 429 || status >= 500;
+
 // One call to the Responses API; returns the assistant's text. Structured calls pass a JSON
-// schema the model must satisfy (strict), replacing LangChain's withStructuredOutput.
+// schema the model must satisfy (strict), replacing LangChain's withStructuredOutput. Transient
+// failures (429/5xx/network) are retried with exponential backoff, honouring Retry-After.
 async function callModel(
   apiKey: string,
   { system, user, effort, schema }: CallOpts,
+  tries = 4,
 ): Promise<string> {
   const body: Record<string, unknown> = {
     model: SUMMARY_MODEL,
@@ -43,38 +49,113 @@ async function callModel(
       { type: "message", role: "user", content: user },
     ],
   };
-  if (schema)
+  if (schema) {
     body.text = {
       format: { type: "json_schema", name: "pr_tldr", schema, strict: true },
     };
-  const res = await fetch(OPENAI_URL, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(body),
-  });
-  if (!res.ok) {
-    const detail = (await res.text().catch(() => "")).slice(0, 200);
-    throw new Error(`OpenAI HTTP ${res.status}${detail ? `: ${detail}` : ""}`);
   }
-  const data: {
-    output?: Array<{
-      type?: string;
-      content?: Array<{ type?: string; text?: string }>;
-    }>;
-  } = await res.json();
-  return (data.output ?? [])
-    .filter((item) => item.type === "message")
-    .flatMap((item) => item.content ?? [])
-    .filter((part) => part.type === "output_text")
-    .map((part) => part.text ?? "")
-    .join("");
+  let delay = 600;
+  for (let attempt = 1; ; attempt++) {
+    let res: Response;
+    try {
+      res = await fetch(OPENAI_URL, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(body),
+      });
+    } catch (e) {
+      if (attempt >= tries) {
+        throw e;
+      }
+      await sleep(delay + Math.random() * 200);
+      delay = Math.min(delay * 2, 8000);
+      continue;
+    }
+    if (res.ok) {
+      const data: {
+        output?: Array<{
+          type?: string;
+          content?: Array<{ type?: string; text?: string }>;
+        }>;
+      } = await res.json();
+
+      return (data.output ?? [])
+        .filter((item) => item.type === "message")
+        .flatMap((item) => item.content ?? [])
+        .filter((part) => part.type === "output_text")
+        .map((part) => part.text ?? "")
+        .join("");
+    }
+    const status = res.status;
+    const detail = (await res.text().catch(() => "")).slice(0, 200);
+    if (attempt >= tries || !RETRYABLE(status)) {
+      throw new Error(`OpenAI HTTP ${status}${detail ? `: ${detail}` : ""}`);
+    }
+    const retryAfter = Number(res.headers.get("retry-after"));
+    await sleep(
+      Number.isFinite(retryAfter) && retryAfter > 0
+        ? retryAfter * 1000
+        : delay + Math.random() * 200,
+    );
+    delay = Math.min(delay * 2, 8000);
+  }
+}
+
+// --- Cache ---------------------------------------------------------------------------
+// Summaries and TL;DRs are cached per model+prompt+diff. Entries carry a timestamp so growth
+// can be bounded; older plain-value entries are still read and get rewritten on replacement.
+const CACHE_PREFIX = /^(sum|tldr):/;
+const MAX_CACHE_ENTRIES = 500;
+let cacheWrites = 0;
+
+async function getCached<T>(key: string): Promise<T | undefined> {
+  const raw = (await chrome.storage.local.get(key))[key];
+  if (raw == null) {
+    return undefined;
+  }
+
+  return typeof raw === "object" && raw !== null && "v" in raw ? raw.v : raw;
+}
+
+async function putCached(key: string, value: unknown) {
+  const entry = { v: value, t: Date.now() };
+  try {
+    await chrome.storage.local.set({ [key]: entry });
+  } catch {
+    // Quota exceeded: drop the oldest quarter, then try once more.
+    await evictCache(0.25);
+    await chrome.storage.local.set({ [key]: entry });
+  }
+  if (++cacheWrites % 100 === 0) {
+    await evictCache(0, MAX_CACHE_ENTRIES);
+  }
+}
+
+// Removes the oldest `fraction` of cached entries, or trims to the `keep` newest.
+// Test seam: exported so eviction can be unit-tested.
+export async function evictCache(fraction: number, keep = Infinity) {
+  const all = await chrome.storage.local.get(null);
+  const entries: Array<[string, number]> = Object.entries(all)
+    .filter(([k]) => CACHE_PREFIX.test(k))
+    .map(([k, v]): [string, number] => [
+      k,
+      typeof v === "object" && v !== null && "t" in v ? v.t : 0,
+    ]);
+  entries.sort((a, b) => a[1] - b[1]);
+  const drop = fraction
+    ? entries.slice(0, Math.ceil(entries.length * fraction))
+    : entries.slice(0, Math.max(0, entries.length - keep));
+  if (drop.length) {
+    await chrome.storage.local.remove(drop.map(([k]) => k));
+  }
 }
 
 // Cached by model, prompt and diff, so reopening a PR or an unchanged file after a push costs nothing.
-async function summarize({
+// Test seam: exported so the cache and retry behaviour can be unit-tested.
+export async function summarize({
   path,
   patch,
 }: {
@@ -82,12 +163,17 @@ async function summarize({
   patch: string;
 }): Promise<{ summary?: string; error?: string }> {
   const { openaiKey } = await chrome.storage.local.get("openaiKey");
-  if (!openaiKey) return { error: "no key" };
-  if (patch.length > MAX_SUMMARY_CHARS)
+  if (!openaiKey) {
+    return { error: "no key" };
+  }
+  if (patch.length > MAX_SUMMARY_CHARS) {
     return { summary: "Diff too large to summarize." };
+  }
   const cacheKey = `sum:${await sha256(SUMMARY_MODEL + SUMMARY_SYSTEM + patch)}`;
-  const hit = (await chrome.storage.local.get(cacheKey))[cacheKey];
-  if (hit) return { summary: hit };
+  const hit = await getCached<string>(cacheKey);
+  if (hit) {
+    return { summary: hit };
+  }
 
   const summary = (
     await callModel(openaiKey, {
@@ -96,8 +182,11 @@ async function summarize({
       effort: "low",
     })
   ).trim();
-  if (!summary) return { error: "empty reply" };
-  await chrome.storage.local.set({ [cacheKey]: summary });
+  if (!summary) {
+    return { error: "empty reply" };
+  }
+  await putCached(cacheKey, summary);
+
   return { summary };
 }
 
@@ -143,12 +232,17 @@ async function tldr({
   diff: string;
 }): Promise<Record<string, unknown>> {
   const { openaiKey } = await chrome.storage.local.get("openaiKey");
-  if (!openaiKey) return { error: "no key" };
-  if (diff.length > MAX_SUMMARY_CHARS)
+  if (!openaiKey) {
+    return { error: "no key" };
+  }
+  if (diff.length > MAX_SUMMARY_CHARS) {
     return { error: "PR too large for a TL;DR" };
+  }
   const cacheKey = `tldr:${await sha256(SUMMARY_MODEL + TLDR_SYSTEM + title + body + diff)}`;
-  const hit = (await chrome.storage.local.get(cacheKey))[cacheKey];
-  if (hit) return hit;
+  const hit = await getCached<Record<string, unknown>>(cacheKey);
+  if (hit) {
+    return hit;
+  }
 
   const text = await callModel(openaiKey, {
     system: TLDR_SYSTEM,
@@ -157,7 +251,8 @@ async function tldr({
     schema: TLDR_SCHEMA,
   });
   const out = JSON.parse(text);
-  await chrome.storage.local.set({ [cacheKey]: out });
+  await putCached(cacheKey, out);
+
   return out;
 }
 
@@ -195,8 +290,11 @@ async function jev(
       questions: { category: QUESTION },
     }),
   });
-  if (!r.ok) throw new Error(`Jev HTTP ${r.status}`);
+  if (!r.ok) {
+    throw new Error(`Jev HTTP ${r.status}`);
+  }
   const { choice, confidence } = (await r.json()).answers.category;
+
   return { path: file.path, category: choice, confidence };
 }
 
@@ -204,7 +302,9 @@ async function classify(
   files: Array<{ path: string; patch: string }>,
 ): Promise<{ results: unknown[]; error?: string }> {
   const { typesafeKey } = await chrome.storage.local.get("typesafeKey");
-  if (!typesafeKey) return { results: [], error: "no key" };
+  if (!typesafeKey) {
+    return { results: [], error: "no key" };
+  }
   const results: unknown[] = [];
   const queue = [...files];
   const errors: string[] = [];
@@ -219,6 +319,7 @@ async function classify(
       }
     }),
   );
+
   return { results, error: errors[0] };
 }
 
@@ -230,6 +331,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, reply) => {
         reply(r.ok ? { text: await r.text() } : { error: `HTTP ${r.status}` }),
       )
       .catch((e) => reply({ error: String(e) }));
+
     return true;
   }
   if (msg.type === "summarize" && typeof msg.patch === "string") {
@@ -237,16 +339,19 @@ chrome.runtime.onMessage.addListener((msg, _sender, reply) => {
     summarize(msg).then(reply, (e) =>
       reply({ error: String(e.message || e).split("\n")[0] }),
     );
+
     return true;
   }
   if (msg.type === "tldr" && typeof msg.diff === "string") {
     tldr(msg).then(reply, (e) =>
       reply({ error: String(e.message || e).split("\n")[0] }),
     );
+
     return true;
   }
   if (msg.type === "classify" && Array.isArray(msg.files)) {
     classify(msg.files).then(reply, (e) => reply({ error: String(e) }));
+
     return true;
   }
 });

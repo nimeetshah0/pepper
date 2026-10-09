@@ -17,6 +17,7 @@ function gear(cx, cy, R, r, teeth) {
     const mid = a + step / 2;
     pts.push(at(r, mid - hwIn), at(r, mid + hwIn));
   }
+
   return `M ${pts.join(" L ")} Z`;
 }
 
