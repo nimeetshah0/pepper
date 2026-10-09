@@ -1,0 +1,81 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+    # Docs-only and workflow-only changes don't affect the artifact.
+    paths-ignore:
+      - "**.md"
+      - "docs/**"
+      - ".github/**"
+  pull_request:
+    paths-ignore:
+      - "**.md"
+      - "docs/**"
+  workflow_dispatch:
+    inputs:
+      force_publish:
+        description: "Publish even if package.json's version did not change"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The version check diffs against the previous commit on main.
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - run: npm ci
+
+      - name: Gates
+        run: |
+          npm run lint
+          npm run typecheck
+          npm test
+
+      - name: Build and package
+        run: npx plasmo package
+
+      # The store API rejects a package whose version is not greater than the
+      # published one, so "publish on every push" is impossible by construction:
+      # publishing is gated on the version actually changing. Bump the version in
+      # package.json to cut a release; anything else still runs the gates.
+      - name: Detect version change
+        id: version
+        if: github.event_name != "pull_request"
+        run: |
+          current=$(node -p "require('./package.json').version")
+          previous=$(git show HEAD^:package.json 2>/dev/null \
+            | python3 -c "import json,sys; print(json.load(sys.stdin).get('version',''))" 2>/dev/null \
+            || echo "")
+          echo "current=$current previous=${previous:-<none>}"
+          if [ "$current" != "$previous" ]; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Publish to the Chrome Web Store
+        if: >-
+          github.event_name != 'pull_request' &&
+          (steps.version.outputs.changed == 'true' ||
+           (github.event_name == 'workflow_dispatch' && inputs.force_publish))
+        uses: mnao305/chrome-extension-upload@v7.0.0
+        with:
+          file-path: build/chrome-mv3-prod.zip
+          extension-id: ${{ vars.CHROME_EXTENSION_ID }}
+          publisher-id: ${{ vars.CHROME_PUBLISHER_ID }}
+          client-id: ${{ secrets.CHROME_CLIENT_ID }}
+          client-secret: ${{ secrets.CHROME_CLIENT_SECRET }}
+          refresh-token: ${{ secrets.CHROME_REFRESH_TOKEN }}

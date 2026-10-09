@@ -96,6 +96,38 @@ only path-based classification lives in rulesets.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for the full workflow.
 
+## Publishing
+
+Pushes to `main` run the gates (lint, typecheck, tests) and build the package. When
+`package.json`'s **version changed**, the Chrome Web Store publish step submits the new
+zip for review automatically — the store API rejects a package whose version isn't greater
+than the published one, so a version bump is what cuts a release. `workflow_dispatch` runs
+the same workflow manually (tick _force_publish_ to publish without a version change).
+
+**Repository settings** (Settings → Secrets and variables → Actions):
+
+| Kind     | Name                   | Where to find it                                                |
+| -------- | ---------------------- | --------------------------------------------------------------- |
+| Variable | `CHROME_EXTENSION_ID`  | Developer Dashboard → the item's ID (also in the dashboard URL) |
+| Variable | `CHROME_PUBLISHER_ID`  | Developer Dashboard → Account → publisher ID                    |
+| Secret   | `CHROME_CLIENT_ID`     | Google Cloud project (below)                                    |
+| Secret   | `CHROME_CLIENT_SECRET` | Google Cloud project (below)                                    |
+| Secret   | `CHROME_REFRESH_TOKEN` | Google Cloud project (below)                                    |
+
+**One-time credential setup:**
+
+1. Google Cloud Console → new project → enable the **Chrome Web Store API**.
+2. OAuth consent screen (External), scope
+   `https://www.googleapis.com/auth/chromewebstore`, and add yourself as a test user.
+3. Credentials → Create OAuth client ID → **Web application** → authorized redirect URI
+   `http://localhost:8080/oauth2callback` (or any loopback port you use below).
+4. Generate a refresh token with the `chrome-webstore-upload` CLI:
+   `npx chrome-webstore-upload init` (it walks the browser consent flow and prints the
+   refresh token), or follow
+   [developer.chrome.com/docs/webstore/using-api](https://developer.chrome.com/docs/webstore/using-api).
+5. The item must already exist in the dashboard (it does — the first publish is manual);
+   from then on CI uploads and submits each version bump.
+
 ## Why "Pepper"?
 
 Pepper is a character from Becky Chambers' _Wayfarers_ novels — the grease-and-wrench
