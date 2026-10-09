@@ -53,7 +53,7 @@ jobs:
       # package.json to cut a release; anything else still runs the gates.
       - name: Detect version change
         id: version
-        if: github.event_name != "pull_request"
+        if: github.event_name != 'pull_request'
         run: |
           current=$(node -p "require('./package.json').version")
           previous=$(git show HEAD^:package.json 2>/dev/null \
