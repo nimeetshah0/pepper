@@ -28,6 +28,8 @@ const classicFile = (path: string) =>
 type ContentModule = typeof import("./github-pr");
 
 let onStorage: (c: Record<string, { newValue?: string }>) => void;
+// Records scrollIntoView calls so story navigation can be asserted.
+let scrolled: Array<{ id: string; options?: ScrollIntoViewOptions }> = [];
 
 // A DOMRect whose only interesting coordinate is `top`.
 const rectAt = (top: number) => new DOMRect(0, top, 0, 0);
@@ -70,6 +72,18 @@ async function loadModule(bodyHtml: string): Promise<ContentModule> {
         String(b.getAttribute("aria-pressed") !== "true"),
       ),
     );
+  // jsdom implements neither scrollIntoView nor smooth scrolling; record the
+  // calls so the story's jump target and options can be asserted.
+  scrolled = [];
+  Element.prototype.scrollIntoView = function (
+    this: Element,
+    arg?: boolean | ScrollIntoViewOptions,
+  ) {
+    scrolled.push({
+      id: this.id,
+      options: typeof arg === "object" ? arg : undefined,
+    });
+  };
   vi.resetModules();
   const t = await import("./github-pr");
   t.stopPolling();
@@ -378,8 +392,27 @@ for (const [name, mk] of VARIANTS) {
       deletions: 0,
       anchor: `diff-${sha("lib/z.ex")}`,
     };
+    // Give the second core file a DOM anchor so the story's jump is observable.
+    document
+      .getElementById("files")!
+      .insertAdjacentHTML(
+        "beforeend",
+        `<div id="diff-${sha(core2.path)}"></div>`,
+      );
     t.setCache({ files: [files[0], core2], tldr: null });
+    scrolled = [];
+    const historyBefore = history.length;
     t.startStory([files[0], core2]);
+    assert.deepStrictEqual(
+      scrolled.map((s) => s.id),
+      [files[0].anchor],
+      `${name}: story start scrolls to the first file`,
+    );
+    assert.strictEqual(
+      scrolled[0].options?.behavior,
+      "instant",
+      `${name}: the jump opts out of smooth scrolling`,
+    );
     const key = (k: string, target: EventTarget = document.body) =>
       target.dispatchEvent(
         new KeyboardEvent("keydown", { key: k, bubbles: true }),
@@ -393,6 +426,21 @@ for (const [name, mk] of VARIANTS) {
     );
     key("j");
     assert.strictEqual(t.story!.i, 1, `${name}: j moves next`);
+    assert.deepStrictEqual(
+      scrolled.map((s) => s.id),
+      [files[0].anchor, core2.anchor],
+      `${name}: j scrolls to the next file directly, not via the url`,
+    );
+    assert.strictEqual(
+      location.hash,
+      `#${core2.anchor}`,
+      `${name}: the url tracks the file`,
+    );
+    assert.strictEqual(
+      history.length,
+      historyBefore,
+      `${name}: stepping does not push history entries`,
+    );
     key("k");
     assert.strictEqual(t.story!.i, 0, `${name}: k moves back`);
     key("k");

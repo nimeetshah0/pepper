@@ -490,10 +490,35 @@ export function closeStory() {
   story = null;
 }
 
+// Jumping to a file by assigning `location.hash` is a fire-and-forget side effect:
+// the browser's fragment scroll runs under GitHub's `scroll-behavior: smooth` and is
+// easily interrupted by that animation, lazy rendering and scroll anchoring — and it
+// is never verified, so an upward jump often comes to rest on the wrong file. Scroll
+// directly instead, and keep the URL in step without the scroll side effect or a
+// history entry per step.
 function goTo(anchor: string) {
-  if (location.hash === `#${anchor}`)
-    document.getElementById(anchor)?.scrollIntoView({ block: "start" });
-  else location.hash = anchor;
+  if (location.hash !== `#${anchor}`)
+    history.replaceState(history.state, "", `#${anchor}`);
+  const f = fileByAnchor(anchor);
+  if (f) pinFile(f.path);
+  scrollToAnchor(anchor);
+}
+
+// `behavior: "instant"` opts out of the page's smooth scrolling so the jump lands in
+// one step. The frame-later re-assert catches GitHub's lazy diff renderer settling the
+// layout just after we scroll, which would otherwise leave the file off-position.
+function scrollToAnchor(anchor: string) {
+  const node = document.getElementById(anchor);
+  if (!node) return;
+  const place = () =>
+    node.scrollIntoView({ block: "start", behavior: "instant" });
+  place();
+  requestAnimationFrame(() => {
+    const top = node.getBoundingClientRect().top;
+    requestAnimationFrame(() => {
+      if (Math.abs(node.getBoundingClientRect().top - top) > 4) place();
+    });
+  });
 }
 
 function showCard(...children: Array<Node | string | null>) {
@@ -759,7 +784,13 @@ document.addEventListener("click", (e) => {
       ? e.target.closest<HTMLAnchorElement>('a[href^="#diff-"]')
       : null;
   const f = a && fileByAnchor(a.hash.slice(1));
-  if (f) pinFile(f.path);
+  if (!f || !a) return;
+  // Pepper's own links drive the reliable jump; GitHub's file-tree links keep their
+  // own navigation, and we only sync the highlight for those.
+  if (a.closest(".prl-root")) {
+    e.preventDefault();
+    goTo(f.anchor!);
+  } else pinFile(f.path);
 });
 
 // Back/forward, or a hash pasted into the URL bar.
