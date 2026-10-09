@@ -9,9 +9,7 @@ on:
       - "docs/**"
       - ".github/**"
   pull_request:
-    paths-ignore:
-      - "**.md"
-      - "docs/**"
+    branches: [main]
   workflow_dispatch:
     inputs:
       force_publish:
@@ -23,7 +21,7 @@ permissions:
   contents: read
 
 jobs:
-  build:
+  gates:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
