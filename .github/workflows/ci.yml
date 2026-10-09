@@ -22,7 +22,8 @@ permissions:
 
 jobs:
   # The only job that runs on pull requests. This is the check branch protection
-  # requires before a PR can merge; it must never build or publish the artifact.
+  # requires before a PR can merge. It builds the extension to prove it bundles,
+  # but never packages or publishes it.
   gates:
     runs-on: ubuntu-latest
     steps:
@@ -40,6 +41,11 @@ jobs:
           npm run lint
           npm run typecheck
           npm test
+
+      # Confirm the extension still bundles. Packaging the zip and publishing
+      # only happen in the main-only job below.
+      - name: Build
+        run: npm run build
 
   # Builds and (when the version changed) publishes. Guarded so it can only run
   # once changes land on main, or via a manual dispatch -- never on a PR. The
