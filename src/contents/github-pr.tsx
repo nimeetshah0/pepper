@@ -648,25 +648,44 @@ function goTo(anchor: string) {
   scrollToAnchor(anchor);
 }
 
-// `behavior: "instant"` opts out of the page's smooth scrolling so the jump lands in
-// one step. The frame-later re-assert catches GitHub's lazy diff renderer settling the
-// layout just after we scroll, which would otherwise leave the file off-position.
+// A jump is not one-shot. Marking the previous file viewed makes GitHub collapse it (and
+// re-render the diff), which shifts everything below and can replace the target node; the lazy
+// renderer settles the layout a few frames after we scroll. Hold the target at the top until its
+// position stops moving. `behavior: "instant"` opts out of the page's smooth scrolling so each
+// correction lands in one step, and a generation counter stops an earlier jump from fighting a
+// newer one.
+const SCROLL_DRIFT_PX = 4;
+const SCROLL_STABLE_FRAMES = 3;
+const SCROLL_MAX_FRAMES = 90;
+let scrollGeneration = 0;
+
 function scrollToAnchor(anchor: string) {
-  const node = document.getElementById(anchor);
-  if (!node) {
-    return;
-  }
-  const place = () =>
-    node.scrollIntoView({ block: "start", behavior: "instant" });
-  place();
-  requestAnimationFrame(() => {
-    const top = node.getBoundingClientRect().top;
-    requestAnimationFrame(() => {
-      if (Math.abs(node.getBoundingClientRect().top - top) > 4) {
-        place();
+  const generation = ++scrollGeneration;
+  let lastTop: number | null = null;
+  let stable = 0;
+  let frames = 0;
+  const tick = () => {
+    if (generation !== scrollGeneration) {
+      return;
+    }
+    const node = document.getElementById(anchor);
+    if (node) {
+      const top = node.getBoundingClientRect().top;
+      if (lastTop === null || Math.abs(top - lastTop) > SCROLL_DRIFT_PX) {
+        node.scrollIntoView({ block: "start", behavior: "instant" });
+        // Re-read after scrolling: GitHub may have swapped the node while we moved.
+        lastTop = node.getBoundingClientRect().top;
+        stable = 0;
+      } else {
+        lastTop = top;
+        stable += 1;
       }
-    });
-  });
+    }
+    if (stable < SCROLL_STABLE_FRAMES && ++frames < SCROLL_MAX_FRAMES) {
+      requestAnimationFrame(tick);
+    }
+  };
+  tick();
 }
 
 function showCard(...children: Array<Node | string | null>) {
